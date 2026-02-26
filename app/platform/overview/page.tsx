@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { useChatbotActions } from "@/hooks/use-chatbot-actions"
 import {
   RefreshCw, ExternalLink, TrendingUp, TrendingDown,
   Minus, BookmarkPlus, Share2, AlertCircle, Sparkles,
@@ -35,6 +36,19 @@ const CATEGORY_STYLES: Record<string, { bg: string; text: string; border: string
   "M&A":       { bg: "bg-pink-500/10",   text: "text-pink-400",    border: "border-pink-500/25"    },
   Markets:     { bg: "bg-cyan-500/10",   text: "text-cyan-400",    border: "border-cyan-500/25"    },
 }
+
+// Map category names to API query keywords
+const CATEGORY_QUERIES: Record<string, string> = {
+  all:         "stock market trading finance",
+  crypto:      "crypto bitcoin ethereum blockchain",
+  macro:       "macroeconomics fed interest rates inflation GDP",
+  earnings:    "earnings revenue quarterly results",
+  forex:       "forex currency EUR USD GBP JPY",
+  commodities: "commodities oil gold silver",
+  "m&a":       "merger acquisition deal buyout",
+}
+
+const ALL_CATEGORIES = ["All", "Crypto", "Macro", "Earnings", "Forex", "Commodities", "M&A"]
 
 const MOCK_SIGNALS: Signal[] = ["BUY", "HOLD", "SELL", "BUY", "HOLD"]
 const MOCK_CONVICTION = [74, 58, 83, 67, 61]
@@ -77,12 +91,10 @@ function SignalPill({ signal }: { signal: Signal }) {
 function AIRecommendation({ index }: { index: number }) {
   const signal = MOCK_SIGNALS[index % MOCK_SIGNALS.length]
   const conviction = MOCK_CONVICTION[index % MOCK_CONVICTION.length]
-
   const barColor = signal === "BUY" ? "bg-emerald-500" : signal === "SELL" ? "bg-red-500" : "bg-amber-500"
 
   return (
     <div className="mt-4 overflow-hidden rounded-xl border border-[#1e3a5f]/60 bg-[#060d1a]/60">
-      {/* Header stripe */}
       <div className="flex items-center justify-between border-b border-[#1e3a5f]/50 bg-[#0a1628]/60 px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/20">
@@ -97,14 +109,10 @@ function AIRecommendation({ index }: { index: number }) {
         </div>
         <SignalPill signal={signal} />
       </div>
-
-      {/* Body */}
       <div className="px-4 py-3.5">
         <p className="mb-4 text-[13px] leading-relaxed text-muted-foreground">
           {MOCK_REASONING[signal]}
         </p>
-
-        {/* Conviction bar */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
@@ -114,13 +122,9 @@ function AIRecommendation({ index }: { index: number }) {
             <span className="text-[11px] font-bold text-foreground">{conviction}%</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-[#1e293b]">
-            <div
-              className={`h-full rounded-full ${barColor}`}
-              style={{ width: `${conviction}%` }}
-            />
+            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${conviction}%` }} />
           </div>
         </div>
-
         <p className="mt-3 text-[10px] italic text-muted-foreground/40">
           Live multi-agent analysis launching soon — signals will update in real-time.
         </p>
@@ -137,8 +141,6 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
 
   return (
     <article className="overflow-hidden rounded-2xl border border-[#334155]/40 bg-[#111827]/70 backdrop-blur-sm transition-colors hover:border-[#334155]/70">
-
-      {/* Hero image */}
       {article.urlToImage && (
         <div className="relative h-52 w-full overflow-hidden bg-[#0a0f1e]">
           <img
@@ -157,7 +159,6 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
       )}
 
       <div className="p-5">
-        {/* Source row */}
         <div className="mb-4 flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#334155]/60 bg-[#1e293b] text-[11px] font-black uppercase text-muted-foreground">
             {article.source.slice(0, 2)}
@@ -175,7 +176,6 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
               )}
             </div>
           </div>
-          {/* Category badge (when no image) */}
           {!article.urlToImage && (
             <span className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${style.bg} ${style.border} ${style.text}`}>
               {article.category}
@@ -183,19 +183,16 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
           )}
         </div>
 
-        {/* Title */}
         <h2 className="mb-2.5 text-[15px] font-bold leading-snug text-foreground">
           {article.title}
         </h2>
 
-        {/* Excerpt */}
         {article.excerpt && (
           <p className="mb-5 text-sm leading-relaxed text-muted-foreground line-clamp-3">
             {article.excerpt}
           </p>
         )}
 
-        {/* Action bar */}
         <div className="flex items-center justify-between border-t border-[#334155]/30 pt-4">
           <a
             href={article.url}
@@ -223,7 +220,6 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
           </div>
         </div>
 
-        {/* ── AI Recommendation ─────────────────────── */}
         <AIRecommendation index={index} />
       </div>
     </article>
@@ -263,21 +259,25 @@ export default function FeedPage() {
   const { isAuthenticated } = useAuth()
   const router = useRouter()
 
-  const [articles, setArticles] = useState<Article[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState<string | null>(null)
+  const [articles, setArticles]       = useState<Article[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState<string | null>(null)
   const [refreshedAt, setRefreshedAt] = useState<Date>(new Date())
+  const [activeCategory, setActiveCategory] = useState("All")
 
+  // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) router.push("/login")
   }, [isAuthenticated, router])
 
-  const fetchNews = useCallback(async () => {
+  // ── Fetch news ────────────────────────────────────────────────────────────
+  const fetchNews = useCallback(async (category = activeCategory) => {
     setLoading(true)
     setError(null)
     try {
-      const res  = await fetch("/api/news?q=stock+market+trading+finance&pageSize=20")
-      const data = await res.json()
+      const query = CATEGORY_QUERIES[category.toLowerCase()] ?? CATEGORY_QUERIES["all"]
+      const res   = await fetch(`/api/news?q=${encodeURIComponent(query)}&pageSize=20`)
+      const data  = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? "Failed to fetch")
       setArticles(data.articles ?? [])
       setRefreshedAt(new Date())
@@ -286,13 +286,33 @@ export default function FeedPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeCategory])
 
+  // Fetch on mount + auto-refresh every 5 min
   useEffect(() => {
     fetchNews()
     const t = setInterval(fetchNews, 5 * 60 * 1000)
     return () => clearInterval(t)
   }, [fetchNews])
+
+  // ── ARIA chatbot integration ──────────────────────────────────────────────
+  useChatbotActions({
+    onFilterFeed: (category) => {
+      // Normalize the category ARIA sends (e.g. "crypto" → "Crypto")
+      const normalized =
+        ALL_CATEGORIES.find(
+          (c) => c.toLowerCase() === category.toLowerCase()
+        ) ?? "All"
+      setActiveCategory(normalized)
+      fetchNews(normalized)
+    },
+  })
+
+  // ── Category tab click ────────────────────────────────────────────────────
+  const handleCategoryClick = (cat: string) => {
+    setActiveCategory(cat)
+    fetchNews(cat)
+  }
 
   if (!isAuthenticated) {
     return (
@@ -304,7 +324,6 @@ export default function FeedPage() {
 
   return (
     <div className="relative min-h-screen bg-[#060d1a]">
-      {/* Subtle radial glow */}
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(56,108,255,0.08),transparent)]" />
 
       <div className="mx-auto max-w-[680px] px-4 pb-8 pt-20">
@@ -315,6 +334,11 @@ export default function FeedPage() {
             <h1 className="text-xl font-black tracking-tight text-foreground">Market Feed</h1>
             <p className="text-xs text-muted-foreground">
               Live news · AI signals preview
+              {activeCategory !== "All" && (
+                <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                  {activeCategory}
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -323,7 +347,7 @@ export default function FeedPage() {
               {timeAgo(refreshedAt.toISOString())}
             </div>
             <button
-              onClick={fetchNews}
+              onClick={() => fetchNews()}
               disabled={loading}
               className="flex items-center gap-1.5 rounded-xl border border-[#334155]/50 bg-[#1e293b]/40 px-3 py-2 text-xs text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground disabled:opacity-40"
             >
@@ -333,13 +357,14 @@ export default function FeedPage() {
           </div>
         </div>
 
-        {/* ── Trending pill strip ── */}
+        {/* ── Category filter strip ── */}
         <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {["All", "Crypto", "Macro", "Earnings", "Forex", "Commodities", "M&A"].map((tag, i) => (
+          {ALL_CATEGORIES.map((tag, i) => (
             <button
               key={tag}
+              onClick={() => handleCategoryClick(tag)}
               className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                i === 0
+                activeCategory === tag
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-[#334155]/50 bg-[#1e293b]/40 text-muted-foreground hover:border-[#334155] hover:text-foreground"
               }`}
@@ -361,7 +386,7 @@ export default function FeedPage() {
               <p className="mt-1 text-sm text-muted-foreground">{error}</p>
             </div>
             <button
-              onClick={fetchNews}
+              onClick={() => fetchNews()}
               className="rounded-xl border border-[#334155] px-5 py-2 text-sm text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
             >
               Try again

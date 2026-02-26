@@ -7,7 +7,8 @@ import { TutorialProvider } from "@/lib/tutorial-context"
 import { FloatingNavbar } from "@/components/floating-navbar"
 import { TutorialWizard } from "@/components/tutorial-wizard"
 import "./globals.css"
-
+import { ChatbotProvider } from "@/components/chatbot/chatbot-provider"
+import { Chatbot } from "@/components/chatbot/chatbot"
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
 export const metadata: Metadata = {
@@ -51,7 +52,12 @@ export default function RootLayout({
             <div className="min-h-screen bg-background">
               <FloatingNavbar />
               <TutorialWizard />
+              <ChatbotProvider>
+
               {children}
+              <Chatbot />
+</ChatbotProvider>
+
             </div>
           </TutorialProvider>
         </AuthProvider>
