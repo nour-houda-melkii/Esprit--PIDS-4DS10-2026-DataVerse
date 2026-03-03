@@ -6,7 +6,7 @@ import { Newspaper, Sparkles, History } from "lucide-react"
 
 const NAV_ITEMS = [
   { href: "/platform/overview",        label: "Feed",            icon: Newspaper, live: true  },
-  { href: "/platform/recommendations", label: "Recommendations", icon: Sparkles,  live: false },
+  { href: "/platform/recommendations", label: "Recommendations", icon: Sparkles,  live: true },
   { href: "/platform/history",         label: "History",         icon: History,   live: false },
 ]
 
