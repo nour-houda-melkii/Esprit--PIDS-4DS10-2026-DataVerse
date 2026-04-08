@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import {
   TrendingUp, TrendingDown, Minus, ChevronLeft, ChevronRight,
   Info, Shield, AlertTriangle, CheckCircle, Brain, Lightbulb,
   Activity, BarChart2, Target, Clock, X, ArrowUpRight, ArrowDownRight,
   Eye, Globe, FlaskConical, LayoutDashboard, ArrowRight,
   HelpCircle, Zap, Layers, ChevronDown, ChevronUp,
-  Flame, Snowflake, Wind, Wallet, TrendingUp as TU,
+  Flame, Snowflake, Wind, Wallet, RefreshCw, Wifi, WifiOff,
 } from "lucide-react"
 import {
   RadarChart, PolarGrid, PolarAngleAxis, Radar as ReRadar,
@@ -27,18 +27,20 @@ const PAIRS = ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "EUR/GBP", "GBP/JPY"]
 type Pair = typeof PAIRS[number]
 const FLAGS: Record<string, string> = { EUR: "🇪🇺", USD: "🇺🇸", GBP: "🇬🇧", JPY: "🇯🇵", CHF: "🇨🇭" }
 
-const SIGNAL: Record<Pair, "BUY" | "SELL" | "HOLD"> = {
+// ─── static fallbacks (used until live data loads) ────────────────────────────
+const SIGNAL_STATIC: Record<Pair, "BUY" | "SELL" | "HOLD"> = {
   "EUR/USD": "BUY", "GBP/USD": "SELL", "USD/JPY": "BUY",
   "USD/CHF": "HOLD", "EUR/GBP": "BUY", "GBP/JPY": "BUY",
 }
-const GROWTH: Record<Pair, number> = {
+const GROWTH_STATIC: Record<Pair, number> = {
   "EUR/USD": 2.3, "GBP/USD": -1.1, "USD/JPY": 3.7,
   "USD/CHF": 0.4, "EUR/GBP": 1.4, "GBP/JPY": 2.9,
 }
-const CONVICTION: Record<Pair, number> = {
+const CONVICTION_STATIC: Record<Pair, number> = {
   "EUR/USD": 74, "GBP/USD": 68, "USD/JPY": 82,
   "USD/CHF": 52, "EUR/GBP": 70, "GBP/JPY": 78,
 }
+
 const PRICE: Record<Pair, string> = {
   "EUR/USD": "1.0842", "GBP/USD": "1.2618", "USD/JPY": "151.34",
   "USD/CHF": "0.9021", "EUR/GBP": "0.8591", "GBP/JPY": "190.98",
@@ -212,6 +214,146 @@ const SCENARIOS = [
   },
 ]
 
+// ─── API response shape ───────────────────────────────────────────────────────
+type SentimentApiResponse = {
+  signal: "buy" | "hold" | "sell"
+  confidence: number          // 0–1
+  probs: { buy: number; hold: number; sell: number }
+  articles?: number
+  error?: string
+}
+
+type LivePairData = {
+  signal: "BUY" | "SELL" | "HOLD"
+  conviction: number          // 0–100
+  growth: number              // percent
+  loading: boolean
+  error: string | null
+  lastUpdated: Date | null
+  articles: number
+  probs: { buy: number; hold: number; sell: number } | null
+}
+
+// ─── Map API signal → our signal type ────────────────────────────────────────
+function mapSignal(s: string): "BUY" | "SELL" | "HOLD" {
+  const u = s.toUpperCase()
+  if (u === "BUY")  return "BUY"
+  if (u === "SELL") return "SELL"
+  return "HOLD"
+}
+
+// ─── Derive expected growth from confidence + signal direction ────────────────
+// Keeps the number plausible (±0.5 to ±5%) and matches signal direction
+function deriveGrowth(signal: "BUY" | "SELL" | "HOLD", confidence: number, staticGrowth: number): number {
+  if (signal === "HOLD") return staticGrowth * 0.3   // muted when uncertain
+  const dir   = signal === "BUY" ? 1 : -1
+  const scale = 0.5 + confidence * 4.5               // 0.5 – 5%
+  return parseFloat((dir * scale).toFixed(2))
+}
+
+// ─── Update RADAR Sentiment score from live API ───────────────────────────────
+function liveRadar(pair: Pair, probs: { buy: number; hold: number; sell: number } | null): Record<string, number> {
+  const base = { ...RADAR[pair] }
+  if (!probs) return base
+  // Sentiment dimension = strongest directional probability × 100
+  const sentimentScore = Math.round(Math.max(probs.buy, probs.sell, probs.hold) * 100)
+  return { ...base, Sentiment: sentimentScore }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIVE DATA HOOK
+// ════════════════════════════════════════════════════════════════════════════
+function useLiveData(pairs: Pair[]) {
+  const [data, setData] = useState<Record<string, LivePairData>>(() => {
+    const init: Record<string, LivePairData> = {}
+    PAIRS.forEach(p => {
+      init[p] = {
+        signal:      SIGNAL_STATIC[p],
+        conviction:  CONVICTION_STATIC[p],
+        growth:      GROWTH_STATIC[p],
+        loading:     false,
+        error:       null,
+        lastUpdated: null,
+        articles:    0,
+        probs:       null,
+      }
+    })
+    return init
+  })
+
+  const abortRefs = useRef<Record<string, AbortController>>({})
+
+  const fetchPair = useCallback(async (pair: Pair) => {
+    // Cancel any in-flight request for this pair
+    abortRefs.current[pair]?.abort()
+    const ctrl = new AbortController()
+    abortRefs.current[pair] = ctrl
+
+    setData(prev => ({ ...prev, [pair]: { ...prev[pair], loading: true, error: null } }))
+
+    try {
+      const res = await fetch(`/api/sentiment?pair=${encodeURIComponent(pair)}`, {
+        signal: ctrl.signal,
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json: SentimentApiResponse = await res.json()
+
+      if (json.error) throw new Error(json.error)
+
+      const signal     = mapSignal(json.signal)
+      const conviction = Math.round(json.confidence * 100)
+      const growth     = deriveGrowth(signal, json.confidence, GROWTH_STATIC[pair])
+
+      setData(prev => ({
+        ...prev,
+        [pair]: {
+          signal,
+          conviction,
+          growth,
+          loading:     false,
+          error:       null,
+          lastUpdated: new Date(),
+          articles:    json.articles ?? 0,
+          probs:       json.probs ?? null,
+        },
+      }))
+    } catch (err: any) {
+      if (err.name === "AbortError") return   // intentional cancel — no state update
+      setData(prev => ({
+        ...prev,
+        [pair]: {
+          ...prev[pair],
+          loading: false,
+          error: err.message ?? "Failed to fetch",
+        },
+      }))
+    }
+  }, [])
+
+  // Fetch all portfolio pairs on mount and when pairs change
+  useEffect(() => {
+    pairs.forEach(p => fetchPair(p))
+    // Cleanup: abort all in-flight requests on unmount
+    return () => { Object.values(abortRefs.current).forEach(c => c.abort()) }
+  }, [pairs.join(",")]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refetch = useCallback((pair: Pair) => fetchPair(pair), [fetchPair])
+  const refetchAll = useCallback(() => pairs.forEach(p => fetchPair(p)), [pairs, fetchPair])
+
+  return { data, refetch, refetchAll }
+}
+
+// ─── Convenience: read live value with static fallback ────────────────────────
+function useSignal(liveData: Record<string, LivePairData>, pair: Pair) {
+  return liveData[pair]?.signal ?? SIGNAL_STATIC[pair]
+}
+function useConviction(liveData: Record<string, LivePairData>, pair: Pair) {
+  return liveData[pair]?.conviction ?? CONVICTION_STATIC[pair]
+}
+function useGrowth(liveData: Record<string, LivePairData>, pair: Pair) {
+  return liveData[pair]?.growth ?? GROWTH_STATIC[pair]
+}
+
 function computeOutcome(pair: string, signal: "BUY" | "SELL" | "HOLD", baseGrowth: number, scenario: typeof SCENARIOS[0], capital: number) {
   const effect = scenario.pairEffects[pair as Pair] ?? { direction: 0 as const, magnitude: 0.3 }
   const signalDir = signal === "BUY" ? 1 : signal === "SELL" ? -1 : 0
@@ -219,7 +361,7 @@ function computeOutcome(pair: string, signal: "BUY" | "SELL" | "HOLD", baseGrowt
   const shockImpact = effect.magnitude * scenario.shockMagnitude
   const adjustedGrowth = baseGrowth + alignment * shockImpact * 3.5
   const survival = Math.max(0.10, Math.min(0.97, 0.55 + alignment * 0.20 + (1 - scenario.shockMagnitude) * 0.15))
-  const baseConv = (CONVICTION[pair as Pair] ?? 60) / 100
+  const baseConv = (CONVICTION_STATIC[pair as Pair] ?? 60) / 100
   const confidence = Math.max(0.10, Math.min(0.98, baseConv + alignment * 0.15 - (1 - survival) * 0.20))
   const decision: "PROCEED" | "REDUCE" | "SKIP" | "HOLD" = signal === "HOLD" ? "HOLD" : confidence >= 0.70 && survival >= 0.60 ? "PROCEED" : confidence >= 0.50 || survival >= 0.45 ? "REDUCE" : "SKIP"
   return { adjustedGrowth, capitalOutcome: capital * (1 + adjustedGrowth / 100), gainLoss: capital * (adjustedGrowth / 100), confidence, survival, decision }
@@ -232,6 +374,79 @@ function sc(s: "BUY" | "SELL" | "HOLD") {
     SELL: { hex: "#f43f5e", bar: "bg-rose-500",    text: "text-rose-400",    border: "border-rose-500/40",    bg: "bg-rose-500/10",    dot: "bg-rose-400",    glow: "0 0 60px rgba(244,63,94,0.12)" },
     HOLD: { hex: "#f59e0b", bar: "bg-amber-500",   text: "text-amber-400",   border: "border-amber-500/40",   bg: "bg-amber-500/10",   dot: "bg-amber-400",   glow: "0 0 60px rgba(245,158,11,0.12)" },
   }[s]
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIVE STATUS BADGE — shows per-pair fetch state
+// ════════════════════════════════════════════════════════════════════════════
+function LiveBadge({
+  pairData, onRefetch,
+}: { pairData: LivePairData; onRefetch: () => void }) {
+  if (pairData.loading) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/10 px-2.5 py-1 text-[9px] font-bold text-blue-400">
+        <RefreshCw className="h-2.5 w-2.5 animate-spin" />FETCHING
+      </span>
+    )
+  }
+  if (pairData.error) {
+    return (
+      <button
+        onClick={onRefetch}
+        title={`Error: ${pairData.error}. Click to retry.`}
+        className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/25 bg-rose-500/10 px-2.5 py-1 text-[9px] font-bold text-rose-400 hover:bg-rose-500/20 transition-colors"
+      >
+        <WifiOff className="h-2.5 w-2.5" />RETRY
+      </button>
+    )
+  }
+  if (pairData.lastUpdated) {
+    const mins = Math.floor((Date.now() - pairData.lastUpdated.getTime()) / 60000)
+    return (
+      <button
+        onClick={onRefetch}
+        title="Refresh live data"
+        className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] px-2.5 py-1 text-[9px] font-bold text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+      >
+        <Wifi className="h-2.5 w-2.5" />
+        LIVE {mins > 0 ? `· ${mins}m ago` : "· just now"}
+        {pairData.articles > 0 && ` · ${pairData.articles} art.`}
+      </button>
+    )
+  }
+  return null
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MODEL VOTES PANEL — shown in Reasoning tab when live data available
+// ════════════════════════════════════════════════════════════════════════════
+function ModelVotesPanel({ probs }: { probs: { buy: number; hold: number; sell: number } }) {
+  const entries: { label: string; key: keyof typeof probs; color: string; bar: string }[] = [
+    { label: "BUY",  key: "buy",  color: "text-emerald-400", bar: "bg-emerald-500" },
+    { label: "HOLD", key: "hold", color: "text-amber-400",   bar: "bg-amber-500" },
+    { label: "SELL", key: "sell", color: "text-rose-400",    bar: "bg-rose-500" },
+  ]
+  return (
+    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-4">
+      <p className="text-[9px] font-black uppercase tracking-widest text-blue-400 mb-3">Ensemble Model Probabilities</p>
+      <div className="space-y-2.5">
+        {entries.map(e => (
+          <div key={e.key}>
+            <div className="flex justify-between mb-1">
+              <span className={`text-[10px] font-black ${e.color}`}>{e.label}</span>
+              <span className="text-[10px] text-slate-400">{(probs[e.key] * 100).toFixed(1)}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+              <div className={`h-full ${e.bar} rounded-full`} style={{ width: `${probs[e.key] * 100}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-slate-600 mt-3">
+        Weighted ensemble: DistilBERT 40% · BiLSTM 25% · TextCNN 15% · LightGBM 12% · LogReg 8%
+      </p>
+    </div>
+  )
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -264,7 +479,7 @@ function DecisionBadge({ d }: { d: "PROCEED" | "REDUCE" | "SKIP" | "HOLD" }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// PORTFOLIO CARDS — replaces the dropdown
+// PORTFOLIO CARDS
 // ════════════════════════════════════════════════════════════════════════════
 interface IPortfolio {
   name: string; currencyPairs: string[]
@@ -273,21 +488,21 @@ interface IPortfolio {
 }
 
 function PortfolioCards({
-  portfolios, active, onSelect,
-}: { portfolios: IPortfolio[]; active: number; onSelect: (i: number) => void }) {
-  const riskColor = { low: "text-emerald-400", medium: "text-amber-400", high: "text-rose-400" }
+  portfolios, active, onSelect, liveData,
+}: { portfolios: IPortfolio[]; active: number; onSelect: (i: number) => void; liveData: Record<string, LivePairData> }) {
+  const riskColor  = { low: "text-emerald-400", medium: "text-amber-400", high: "text-rose-400" }
   const riskBorder = { low: "border-emerald-500/25", medium: "border-amber-500/25", high: "border-rose-500/25" }
-  const riskBg = { low: "bg-emerald-500/[0.06]", medium: "bg-amber-500/[0.06]", high: "bg-rose-500/[0.06]" }
+  const riskBg     = { low: "bg-emerald-500/[0.06]", medium: "bg-amber-500/[0.06]", high: "bg-rose-500/[0.06]" }
 
   return (
     <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
       {portfolios.map((p, i) => {
         const isActive = i === active
-        const netGrowth = (p.currencyPairs as Pair[])
-          .reduce((s, pair) => s + (GROWTH[pair] ?? 0), 0) / Math.max(p.currencyPairs.length, 1)
-        const projected = p.initialCapital * (1 + netGrowth / 100)
-        const diff = projected - p.initialCapital
-        const isPos = diff >= 0
+        const validPairs = p.currencyPairs.filter(x => PAIRS.includes(x as Pair)) as Pair[]
+        const netGrowth = validPairs.length > 0
+          ? validPairs.reduce((s, pair) => s + (liveData[pair]?.growth ?? GROWTH_STATIC[pair]), 0) / validPairs.length
+          : 0
+        const isPos = netGrowth >= 0
 
         return (
           <button
@@ -299,7 +514,6 @@ function PortfolioCards({
                 : "border-white/[0.07] bg-white/[0.025] hover:border-white/[0.14] hover:bg-white/[0.04]"
             }`}
           >
-            {/* top row */}
             <div className="flex items-start justify-between mb-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08]">
                 <Wallet className="h-4 w-4 text-slate-400" />
@@ -310,18 +524,13 @@ function PortfolioCards({
                 </span>
               )}
             </div>
-
             <p className="text-sm font-black text-white mb-1.5 leading-snug">{p.name}</p>
-
-            {/* risk + style badges */}
             <div className="flex items-center gap-1.5 mb-4">
               <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${riskColor[p.riskLevel]} ${riskBorder[p.riskLevel]} ${riskBg[p.riskLevel]}`}>
                 {p.riskLevel.toUpperCase()} RISK
               </span>
               <span className="text-[9px] text-slate-600">{p.tradingStyle}</span>
             </div>
-
-            {/* balance row */}
             <div className="flex items-end justify-between pt-3 border-t border-white/[0.05]">
               <div>
                 <p className="text-[9px] text-slate-600 mb-0.5">Balance</p>
@@ -345,17 +554,19 @@ function PortfolioCards({
 // PAIR SELECTOR STRIP
 // ════════════════════════════════════════════════════════════════════════════
 function PairSelector({
-  pairs, active, onChange, perPair,
-}: { pairs: Pair[]; active: Pair; onChange: (p: Pair) => void; perPair: number }) {
+  pairs, active, onChange, perPair, liveData, onRefetch,
+}: { pairs: Pair[]; active: Pair; onChange: (p: Pair) => void; perPair: number; liveData: Record<string, LivePairData>; onRefetch: (p: Pair) => void }) {
   return (
     <div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {pairs.map((p, idx) => {
-          const s = SIGNAL[p], c = sc(s)
+          const pd   = liveData[p]
+          const s    = pd.signal
+          const c    = sc(s)
           const isActive = p === active
           const [base, quote] = p.split("/")
-          const g = GROWTH[p]
-          const conv = CONVICTION[p]
+          const g    = pd.growth
+          const conv = pd.conviction
           const change = CHANGE[p]
           const gain = perPair * (g / 100)
           return (
@@ -388,7 +599,11 @@ function PairSelector({
                 </div>
 
                 <div className="flex items-center justify-between mb-3">
-                  <SignalPill s={s} size="sm" />
+                  <div className="flex items-center gap-1.5">
+                    <SignalPill s={s} size="sm" />
+                    {pd.loading && <RefreshCw className="h-2.5 w-2.5 text-blue-400 animate-spin" />}
+                    {pd.error && <WifiOff className="h-2.5 w-2.5 text-rose-400" />}
+                  </div>
                   <div className="text-right">
                     <p className="font-mono text-xs font-black text-white">{PRICE[p]}</p>
                     <p className={`text-[10px] font-mono ${change >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -433,7 +648,7 @@ function PairSelector({
         <div className="flex-1 h-px bg-white/[0.04]" />
         <div className="flex gap-1.5">
           {pairs.map(p => {
-            const s = SIGNAL[p], c = sc(s)
+            const s = liveData[p].signal, c = sc(s)
             return (
               <button key={p} onClick={() => onChange(p)} title={p}
                 className={`flex h-6 w-6 items-center justify-center rounded-lg border transition-all ${
@@ -452,14 +667,20 @@ function PairSelector({
 // ════════════════════════════════════════════════════════════════════════════
 // TAB CONTENT — OVERVIEW
 // ════════════════════════════════════════════════════════════════════════════
-function OverviewTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: number; portfolioPairs: Pair[] }) {
-  const sig = SIGNAL[pair], c = sc(sig), g = GROWTH[pair], conv = CONVICTION[pair]
+function OverviewTab({
+  pair, capital, portfolioPairs, liveData, onRefetch,
+}: { pair: Pair; capital: number; portfolioPairs: Pair[]; liveData: Record<string, LivePairData>; onRefetch: (p: Pair) => void }) {
+  const pd   = liveData[pair]
+  const sig  = pd.signal
+  const c    = sc(sig)
+  const g    = pd.growth
+  const conv = pd.conviction
   const price = PRICE[pair], change = CHANGE[pair], t = TARGET[pair]
   const r = REASONING[pair]
   const histData = HISTORY[pair].map((v, i) => ({ i, v }))
   const projected = capital * (1 + g / 100)
   const gain = projected - capital
-  const allData = portfolioPairs.map(p => ({ pair: p, g: GROWTH[p], fill: sc(SIGNAL[p]).hex }))
+  const allData = portfolioPairs.map(p => ({ pair: p, g: liveData[p]?.growth ?? GROWTH_STATIC[p], fill: sc(liveData[p]?.signal ?? SIGNAL_STATIC[p]).hex }))
   const [showCalc, setShowCalc] = useState(false)
 
   return (
@@ -469,7 +690,6 @@ function OverviewTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: n
         style={{ borderColor: `${c.hex}28`, background: "linear-gradient(135deg,#0b1526 0%,#070d1c 100%)", boxShadow: c.glow }}>
         <div className="absolute -top-20 -right-20 w-56 h-56 rounded-full blur-3xl opacity-15 pointer-events-none" style={{ background: c.hex }} />
         <div className="relative">
-          {/* pair identity */}
           <div className="flex items-start justify-between gap-4 mb-5">
             <div className="flex items-center gap-4">
               <div className="relative h-14 w-14 flex items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.10] shrink-0">
@@ -478,9 +698,10 @@ function OverviewTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: n
               </div>
               <div>
                 <p className="font-mono text-2xl font-black text-white tracking-wider">{pair}</p>
-                <div className="flex items-center gap-2.5 mt-1.5">
+                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
                   <SignalPill s={sig} size="lg" />
                   <span className="text-[10px] text-slate-500">{TIMEFRAME[pair]}</span>
+                  <LiveBadge pairData={pd} onRefetch={() => onRefetch(pair)} />
                 </div>
               </div>
             </div>
@@ -500,7 +721,7 @@ function OverviewTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: n
               <p className={`text-xs font-black ${c.text}`}>{conv}% — {conv >= 75 ? "High alignment" : conv >= 60 ? "Moderate signal" : "Cautious"}</p>
             </div>
             <div className="h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
-              <div className={`h-full rounded-full ${c.bar}`} style={{ width: `${conv}%` }} />
+              <div className={`h-full rounded-full ${c.bar} transition-all duration-700`} style={{ width: `${conv}%` }} />
             </div>
           </div>
 
@@ -594,7 +815,9 @@ function OverviewTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: n
               <p className="text-[11px] text-slate-500 leading-relaxed">
                 <span className="text-white font-bold">Math:</span>{" "}
                 ${fmt(capital)} × (1 + {g >= 0 ? "+" : ""}{g.toFixed(1)}%) = ${fmt(projected, 0)} projected.
-                Expected move derived from conviction ({conv}%) and volatility ({VOLATILITY[pair]}).
+                {pd.lastUpdated
+                  ? ` Signal derived from live NLP ensemble (${pd.articles} articles). Conviction ${conv}%.`
+                  : ` Expected move derived from conviction (${conv}%) and volatility (${VOLATILITY[pair]}).`}
                 Risk/Reward {RR[pair]}: for every $1 risked, ${RR[pair].split(":")[0]} is targeted.
               </p>
             </div>
@@ -628,10 +851,14 @@ function OverviewTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: n
 // ════════════════════════════════════════════════════════════════════════════
 // TAB CONTENT — TECHNICAL
 // ════════════════════════════════════════════════════════════════════════════
-function TechnicalTab({ pair }: { pair: Pair }) {
-  const sig = SIGNAL[pair], c = sc(sig), tech = REASONING[pair].technical, t = TARGET[pair]
+function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string, LivePairData> }) {
+  const pd   = liveData[pair]
+  const sig  = pd.signal
+  const c    = sc(sig)
+  const tech = REASONING[pair].technical
+  const t    = TARGET[pair]
   const hist = HISTORY[pair]
-  const radarData = Object.entries(RADAR[pair]).map(([k, v]) => ({ subject: k, value: v, fullMark: 100 }))
+  const radarData = Object.entries(liveRadar(pair, pd.probs)).map(([k, v]) => ({ subject: k, value: v, fullMark: 100 }))
   const priceData = hist.map((v, i) => ({ i, v, sma: i >= 4 ? hist.slice(i - 4, i + 1).reduce((a, b) => a + b) / 5 : v }))
   const yMin = Math.min(parseFloat(t.sl), hist[0]) * 0.9993
   const yMax = Math.max(parseFloat(t.tp), hist[hist.length - 1]) * 1.0007
@@ -733,6 +960,7 @@ function TechnicalTab({ pair }: { pair: Pair }) {
           <div className="flex items-center gap-2 mb-2">
             <Eye className="h-4 w-4 text-slate-400" />
             <p className="text-sm font-black text-white">Signal Radar</p>
+            {pd.lastUpdated && <span className="ml-auto text-[9px] text-blue-400">Sentiment: live</span>}
           </div>
           <ResponsiveContainer width="100%" height={190}>
             <RadarChart data={radarData} outerRadius={72}>
@@ -758,10 +986,13 @@ function TechnicalTab({ pair }: { pair: Pair }) {
 // ════════════════════════════════════════════════════════════════════════════
 // TAB CONTENT — REASONING
 // ════════════════════════════════════════════════════════════════════════════
-function ReasoningTab({ pair }: { pair: Pair }) {
-  const r = REASONING[pair], sig = SIGNAL[pair], c = sc(sig)
+function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string, LivePairData> }) {
+  const pd  = liveData[pair]
+  const sig = pd.signal
+  const r   = REASONING[pair]
+  const c   = sc(sig)
   const [openFactor, setOpenFactor] = useState<number | null>(null)
-  const [openRisk, setOpenRisk] = useState<number | null>(null)
+  const [openRisk, setOpenRisk]     = useState<number | null>(null)
   const sv = {
     HIGH:   { cls: "text-rose-400 bg-rose-500/10 border-rose-500/30" },
     MEDIUM: { cls: "text-amber-400 bg-amber-500/10 border-amber-500/30" },
@@ -786,12 +1017,21 @@ function ReasoningTab({ pair }: { pair: Pair }) {
           <p className={`text-[9px] font-black uppercase tracking-widest mb-1.5 ${c.text}`}>{r.headline}</p>
           <p className="text-xs text-slate-200 leading-relaxed">{r.summary}</p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+
+        {/* Live model votes — only shown when real data is available */}
+        {pd.probs && <ModelVotesPanel probs={pd.probs} />}
+
+        <div className="flex flex-wrap gap-1.5 mt-4">
           {r.agents.map(a => (
             <span key={a} className="rounded-full border border-blue-500/25 bg-blue-500/8 px-2.5 py-1 text-[9px] font-black text-blue-400">
               {a.toUpperCase()} AGENT
             </span>
           ))}
+          {pd.lastUpdated && (
+            <span className="rounded-full border border-emerald-500/25 bg-emerald-500/8 px-2.5 py-1 text-[9px] font-black text-emerald-400">
+              NLP ENSEMBLE AGENT
+            </span>
+          )}
         </div>
       </div>
 
@@ -894,12 +1134,16 @@ function ReasoningTab({ pair }: { pair: Pair }) {
 // ════════════════════════════════════════════════════════════════════════════
 // TAB CONTENT — SCENARIOS
 // ════════════════════════════════════════════════════════════════════════════
-function ScenariosTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: number; portfolioPairs: Pair[] }) {
+function ScenariosTab({
+  pair, capital, portfolioPairs, liveData,
+}: { pair: Pair; capital: number; portfolioPairs: Pair[]; liveData: Record<string, LivePairData> }) {
   const [activeId, setActiveId] = useState(SCENARIOS[0].id)
   const [showSteps, setShowSteps] = useState(false)
-  const sig = SIGNAL[pair], g = GROWTH[pair]
+  const pd  = liveData[pair]
+  const sig = pd.signal
+  const g   = pd.growth
   const scenario = SCENARIOS.find(s => s.id === activeId)!
-  const outcome = useMemo(() => computeOutcome(pair, sig, g, scenario, capital), [pair, sig, g, activeId, capital])
+  const outcome  = useMemo(() => computeOutcome(pair, sig, g, scenario, capital), [pair, sig, g, activeId, capital])
   const allOut = SCENARIOS.map(s => ({
     name: s.name.split(" ")[0],
     conf: Math.round(computeOutcome(pair, sig, g, s, capital).confidence * 100),
@@ -916,6 +1160,7 @@ function ScenariosTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: 
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
           Select a macro shock to see how your {pair} trade performs. ARIA adjusts confidence, survival, and capital outcome based on how the scenario interacts with your signal.
+          {pd.lastUpdated && " Signal direction sourced from live NLP ensemble."}
         </p>
       </div>
 
@@ -1023,8 +1268,8 @@ function ScenariosTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: 
               <div className="space-y-3">
                 {[
                   `Scenario hits ${pair} with ${((scenario.pairEffects[pair as Pair]?.magnitude ?? 0) * scenario.shockMagnitude * 100).toFixed(0)}% effective shock intensity.`,
-                  `Your ${SIGNAL[pair]} signal is ${outcome.adjustedGrowth >= GROWTH[pair] ? "REINFORCED by" : "OPPOSED by"} this scenario direction.`,
-                  `Adjusted return: base ${GROWTH[pair]}% → ${outcome.adjustedGrowth >= 0 ? "+" : ""}${outcome.adjustedGrowth.toFixed(2)}%.`,
+                  `Your ${sig} signal is ${outcome.adjustedGrowth >= g ? "REINFORCED by" : "OPPOSED by"} this scenario direction.`,
+                  `Adjusted return: base ${g}% → ${outcome.adjustedGrowth >= 0 ? "+" : ""}${outcome.adjustedGrowth.toFixed(2)}%.`,
                   `Confidence ${Math.round(outcome.confidence * 100)}% vs 70% threshold → ${Math.round(outcome.confidence * 100) >= 70 ? "✓ PASS" : "✗ FAIL"}.`,
                   `Survival ${Math.round(outcome.survival * 100)}% vs 60% threshold → ${Math.round(outcome.survival * 100) >= 60 ? "✓ PASS" : "✗ FAIL"}.`,
                   `Final decision: ${outcome.decision}.`,
@@ -1064,8 +1309,11 @@ function ScenariosTab({ pair, capital, portfolioPairs }: { pair: Pair; capital: 
 // ════════════════════════════════════════════════════════════════════════════
 // TAB CONTENT — MACRO
 // ════════════════════════════════════════════════════════════════════════════
-function MacroTab({ pair }: { pair: Pair }) {
-  const r = REASONING[pair], sig = SIGNAL[pair], c = sc(sig)
+function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, LivePairData> }) {
+  const pd  = liveData[pair]
+  const sig = pd.signal
+  const r   = REASONING[pair]
+  const c   = sc(sig)
   const [base, quote] = pair.split("/")
   const events = [
     { name: `${base === "EUR" ? "ECB" : base === "GBP" ? "Bank of England" : base === "USD" ? "Federal Reserve" : "Bank of Japan"} Rate Decision`, impact: "HIGH" as const, timing: "Next week", currency: base },
@@ -1178,7 +1426,7 @@ function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
             {[
               { icon: LayoutDashboard, title: "Overview", desc: "Signal, live price, conviction score, capital projection, entry/TP/SL levels, and pair comparison chart." },
               { icon: Activity,        title: "Technical", desc: "Price action chart with TP/SL plotted, key support/resistance levels, indicators, and a 5-dimension signal radar." },
-              { icon: Brain,           title: "Reasoning", desc: "Every factor that drove the AI decision with contribution strength. Tap any card to read full detail." },
+              { icon: Brain,           title: "Reasoning", desc: "Every factor that drove the AI decision with contribution strength. Tap any card to read full detail. Live NLP ensemble probabilities shown when data is available." },
               { icon: FlaskConical,    title: "Scenarios", desc: "3 macro scenarios (Fed Hawkish, Risk-Off, Soft Landing). See how your trade survives each one with the full decision chain." },
               { icon: Globe,           title: "Macro",     desc: "Interest rate differential, economic data comparison, and upcoming events that can move the pair." },
             ].map(item => (
@@ -1193,9 +1441,11 @@ function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
               </div>
             ))}
           </div>
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] p-4">
-            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-2">⚠ Demo Data</p>
-            <p className="text-xs text-slate-400 leading-relaxed">All prices and signals are illustrative demo data. Not financial advice.</p>
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-4">
+            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">⚡ Live Sentiment</p>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Signals are fetched live from your NLP ensemble (LR · LightGBM · TextCNN · BiLSTM · DistilBERT). Static fallbacks are used if the API is unreachable. Click any RETRY badge to re-fetch.
+            </p>
           </div>
         </div>
       </div>
@@ -1230,31 +1480,30 @@ const DEMO_PORTFOLIOS: IPortfolio[] = [
 export default function RecommendationsPage() {
   const { user } = useAuth()
   const rawPortfolios = user?.portfolios as IPortfolio[] | undefined
-  const portfolios = rawPortfolios?.length ? rawPortfolios : DEMO_PORTFOLIOS
-  const isDemo = !rawPortfolios?.length
+  const portfolios    = rawPortfolios?.length ? rawPortfolios : DEMO_PORTFOLIOS
+  const isDemo        = !rawPortfolios?.length
 
   const [portfolioIdx, setPortfolioIdx] = useState(0)
-  const [pair, setPair] = useState<Pair>(PAIRS[0])
-  const [tab, setTab] = useState<Tab>("overview")
-  const [showHelp, setShowHelp] = useState(false)
+  const [pair, setPair]                 = useState<Pair>(PAIRS[0])
+  const [tab, setTab]                   = useState<Tab>("overview")
+  const [showHelp, setShowHelp]         = useState(false)
 
-  const portfolio = portfolios[portfolioIdx]
-  // Only show pairs that belong to the active portfolio AND exist in our data
-  const portfolioPairs = portfolio.currencyPairs
-    .filter(p => PAIRS.includes(p as Pair)) as Pair[]
-  const perPair = portfolio.initialCapital / Math.max(portfolioPairs.length, 1)
+  const portfolio      = portfolios[portfolioIdx]
+  const portfolioPairs = portfolio.currencyPairs.filter(p => PAIRS.includes(p as Pair)) as Pair[]
+  const perPair        = portfolio.initialCapital / Math.max(portfolioPairs.length, 1)
 
+  // ── Live data ──────────────────────────────────────────────────────────────
+  const { data: liveData, refetch, refetchAll } = useLiveData(portfolioPairs)
+
+  // Derived aggregates using live data
   const totalProjected = portfolioPairs.reduce(
-    (s, p) => s + perPair * (1 + (GROWTH[p] ?? 0) / 100), 0
+    (s, p) => s + perPair * (1 + (liveData[p]?.growth ?? GROWTH_STATIC[p]) / 100), 0
   )
-  const netPnL = totalProjected - portfolio.initialCapital
-  const bestPair = portfolioPairs.length > 0
-    ? portfolioPairs.reduce((b, p) => GROWTH[p] > GROWTH[b] ? p : b, portfolioPairs[0])
-    : PAIRS[0]
+  const netPnL  = totalProjected - portfolio.initialCapital
   const avgConv = portfolioPairs.length > 0
-    ? Math.round(portfolioPairs.reduce((s, p) => s + CONVICTION[p], 0) / portfolioPairs.length)
+    ? Math.round(portfolioPairs.reduce((s, p) => s + (liveData[p]?.conviction ?? CONVICTION_STATIC[p]), 0) / portfolioPairs.length)
     : 0
-  const c = sc(SIGNAL[pair])
+  const c = sc(liveData[pair]?.signal ?? SIGNAL_STATIC[pair])
 
   // When portfolio changes, ensure selected pair belongs to the new portfolio
   useEffect(() => {
@@ -1262,11 +1511,11 @@ export default function RecommendationsPage() {
       setPair(portfolioPairs[0])
       setTab("overview")
     }
-  }, [portfolioIdx])
+  }, [portfolioIdx]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePortfolioSelect = useCallback((i: number) => {
     setPortfolioIdx(i)
-    const p = portfolios[i]
+    const p   = portfolios[i]
     const first = p.currencyPairs.find(x => PAIRS.includes(x as Pair)) as Pair | undefined
     if (first) { setPair(first); setTab("overview") }
   }, [portfolios])
@@ -1275,6 +1524,9 @@ export default function RecommendationsPage() {
     setPair(p)
     setTab("overview")
   }, [])
+
+  // Any pair currently loading?
+  const anyLoading = portfolioPairs.some(p => liveData[p]?.loading)
 
   return (
     <div className="min-h-screen bg-[#040c18]" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
@@ -1299,10 +1551,25 @@ export default function RecommendationsPage() {
             <p className="text-xs text-slate-500 mt-1">EUR · USD · JPY · CHF · GBP — 6 major pairs</p>
           </div>
           <div className="flex items-center gap-2.5 mt-1">
+            {/* Global live indicator */}
             <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-1.5">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[9px] font-bold text-emerald-400 tracking-widest">LIVE</span>
+              {anyLoading
+                ? <RefreshCw className="h-2.5 w-2.5 text-blue-400 animate-spin" />
+                : <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              }
+              <span className="text-[9px] font-bold text-emerald-400 tracking-widest">
+                {anyLoading ? "FETCHING" : "LIVE"}
+              </span>
             </div>
+            {/* Refresh all button */}
+            <button
+              onClick={refetchAll}
+              disabled={anyLoading}
+              title="Refresh all pairs"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] hover:border-white/[0.18] disabled:opacity-40 transition-colors"
+            >
+              <RefreshCw className={`h-4 w-4 text-slate-400 ${anyLoading ? "animate-spin" : ""}`} />
+            </button>
             <button onClick={() => setShowHelp(true)}
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] hover:border-white/[0.18] transition-colors">
               <HelpCircle className="h-4 w-4 text-slate-400" />
@@ -1321,21 +1588,21 @@ export default function RecommendationsPage() {
           </div>
         )}
 
-        {/* ── PORTFOLIO SWITCHER (cards, no dropdown) ─────────── */}
+        {/* ── PORTFOLIO SWITCHER ────────────────────────────── */}
         <section>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3">Your Portfolios</p>
-          <PortfolioCards portfolios={portfolios} active={portfolioIdx} onSelect={handlePortfolioSelect} />
+          <PortfolioCards portfolios={portfolios} active={portfolioIdx} onSelect={handlePortfolioSelect} liveData={liveData} />
         </section>
 
         {/* ── PORTFOLIO STATS BAR ─────────────────────────────── */}
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
           {[
-            { label: "Balance",    value: `$${fmt(portfolio.initialCapital)}`,                                          color: "text-white" },
-            { label: "Projected",  value: `$${fmt(totalProjected, 0)}`,                                                 color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
-            { label: "Net P&L",    value: `${netPnL >= 0 ? "+" : "−"}$${fmt(Math.abs(netPnL), 0)}`,                    color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
-            { label: "Pairs",      value: String(portfolioPairs.length),                                                color: "text-white" },
-            { label: "Risk Level", value: portfolio.riskLevel.toUpperCase(),                                            color: { low: "text-emerald-400", medium: "text-amber-400", high: "text-rose-400" }[portfolio.riskLevel] ?? "text-white" },
-            { label: "Avg Conv.",  value: portfolioPairs.length > 0 ? `${avgConv}%` : "—",                              color: "text-blue-400" },
+            { label: "Balance",    value: `$${fmt(portfolio.initialCapital)}`,                                   color: "text-white" },
+            { label: "Projected",  value: `$${fmt(totalProjected, 0)}`,                                          color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
+            { label: "Net P&L",    value: `${netPnL >= 0 ? "+" : "−"}$${fmt(Math.abs(netPnL), 0)}`,             color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
+            { label: "Pairs",      value: String(portfolioPairs.length),                                         color: "text-white" },
+            { label: "Risk Level", value: portfolio.riskLevel.toUpperCase(),                                     color: { low: "text-emerald-400", medium: "text-amber-400", high: "text-rose-400" }[portfolio.riskLevel] ?? "text-white" },
+            { label: "Avg Conv.",  value: portfolioPairs.length > 0 ? `${avgConv}%` : "—",                      color: "text-blue-400" },
           ].map(s => (
             <div key={s.label} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
               <p className="text-[9px] uppercase tracking-wider text-slate-600 mb-1">{s.label}</p>
@@ -1344,20 +1611,18 @@ export default function RecommendationsPage() {
           ))}
         </div>
 
-        {/* ── SELECT A PAIR ────────────────────────────────────── */}
+        {/* ── SELECT A PAIR ─────────────────────────────────── */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Your Pairs</p>
             <span className="text-[10px] text-slate-600">From {portfolio.name}</span>
           </div>
-          <PairSelector pairs={portfolioPairs} active={pair} onChange={handlePairChange} perPair={perPair} />
+          <PairSelector pairs={portfolioPairs} active={pair} onChange={handlePairChange} perPair={perPair} liveData={liveData} onRefetch={refetch} />
         </section>
 
-        {/* ── ACTIVE PAIR HEADER ───────────────────────────────── */}
+        {/* ── ACTIVE PAIR HEADER ───────────────────────────── */}
         <div className="rounded-3xl border border-white/[0.08] bg-[#060e1d]/80 backdrop-blur-sm overflow-hidden">
-          {/* accent line */}
           <div className={`h-0.5 ${c.bar}`} />
-
           <div className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-3.5">
               <div className="relative h-12 w-12 flex items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.09] shrink-0">
@@ -1367,18 +1632,18 @@ export default function RecommendationsPage() {
               <div>
                 <div className="flex items-center gap-2.5">
                   <p className="font-mono text-lg font-black text-white tracking-wide">{pair}</p>
-                  <SignalPill s={SIGNAL[pair]} />
+                  <SignalPill s={liveData[pair]?.signal ?? SIGNAL_STATIC[pair]} />
                 </div>
                 <div className="flex items-center gap-3 mt-1">
                   <p className="font-mono text-sm text-slate-400">{PRICE[pair]}</p>
                   <p className={`text-xs font-mono ${CHANGE[pair] >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                     {CHANGE[pair] >= 0 ? "▲" : "▼"} {Math.abs(CHANGE[pair]).toFixed(4)}
                   </p>
-                  <span className={`text-xs font-black ${c.text}`}>{CONVICTION[pair]}% conv.</span>
+                  <span className={`text-xs font-black ${c.text}`}>{liveData[pair]?.conviction ?? CONVICTION_STATIC[pair]}% conv.</span>
                 </div>
               </div>
             </div>
-            {/* Prev / Next — navigate within portfolio pairs only */}
+            {/* Prev / Next */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { const i = portfolioPairs.indexOf(pair); if (i > 0) { setPair(portfolioPairs[i - 1]); setTab("overview") } }}
@@ -1417,11 +1682,11 @@ export default function RecommendationsPage() {
 
         {/* ── TAB CONTENT ─────────────────────────────────────── */}
         <div key={`${pair}-${tab}`}>
-          {tab === "overview"  && <OverviewTab  pair={pair} capital={perPair} portfolioPairs={portfolioPairs} />}
-          {tab === "technical" && <TechnicalTab pair={pair} />}
-          {tab === "reasoning" && <ReasoningTab pair={pair} />}
-          {tab === "scenarios" && <ScenariosTab pair={pair} capital={perPair} portfolioPairs={portfolioPairs} />}
-          {tab === "macro"     && <MacroTab     pair={pair} />}
+          {tab === "overview"  && <OverviewTab  pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} onRefetch={refetch} />}
+          {tab === "technical" && <TechnicalTab pair={pair} liveData={liveData} />}
+          {tab === "reasoning" && <ReasoningTab pair={pair} liveData={liveData} />}
+          {tab === "scenarios" && <ScenariosTab pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} />}
+          {tab === "macro"     && <MacroTab     pair={pair} liveData={liveData} />}
         </div>
 
       </div>
