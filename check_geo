@@ -1,0 +1,55 @@
+"""
+check_geo.py — called by: make check-geo
+Verifies the geopolitical agent's data file and model files exist.
+Usage: python check_geo.py [data_path]
+"""
+import sys
+from pathlib import Path
+
+DATA_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 \
+            else Path("data/processed/fx_geopolitical_features.csv")
+
+PAIRS  = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF"]
+MODELS = ["Model_A", "Model_B", "Model_C"]
+GEO_DIR = Path("models/geopolitical_agent")
+
+ok = True
+
+print()
+print("  Data file:")
+if DATA_PATH.exists():
+    import pandas as pd
+    rows = len(pd.read_csv(DATA_PATH))
+    print(f"    [OK]      {DATA_PATH}  ({rows} rows)")
+else:
+    print(f"    [MISSING] {DATA_PATH}")
+    ok = False
+
+print()
+print("  Keras model files:")
+for pair in PAIRS:
+    for name in MODELS:
+        f = GEO_DIR / f"{name}_{pair}.keras"
+        if f.exists():
+            print(f"    [OK]      {f}")
+        else:
+            print(f"    [MISSING] {f}")
+            ok = False
+
+print()
+print("  Scalers (optional — z-score fallback used if missing):")
+for pair in PAIRS:
+    f = GEO_DIR / f"scaler_{pair}.pkl"
+    if f.exists():
+        print(f"    [OK]      {f}")
+    else:
+        print(f"    [--]      {f}  (will z-score on the fly)")
+
+print()
+if ok:
+    print("  Result: [READY] — all required files found.")
+else:
+    print("  Result: [NOT READY] — fix missing files above.")
+print()
+
+sys.exit(0 if ok else 1)

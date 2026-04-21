@@ -1,0 +1,66 @@
+# ============================================================
+# FX-ALPHALAB — Python Dependencies
+# Install with:   pip install -r requirements.txt
+#   or via Make:  make install
+#
+# Tested on: Python 3.13 / Windows 10
+#
+# Agents covered:
+#   predict_sentiment.py     — LR · LightGBM · TextCNN · BiLSTM · DistilBERT
+#   predict_correlation.py   — XGBoost · Markov regime
+#   predict_geopolitical.py  — MLP · GradientBoosting · RandomForest (.keras)
+#   central_brain.py         — meta stacker · LLaMA via TokenFactory
+# ============================================================
+
+# ── Core Data & ML ────────────────────────────────────────────
+# No strict pins — Python 3.13 ships with newer wheels than what
+# was originally pinned (numpy 2.4.4 / pandas 3.0.0 / sklearn 1.8.0).
+numpy>=2.0.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
+scipy>=1.11.0
+
+# ── Gradient Boosting ─────────────────────────────────────────
+xgboost>=2.0.0
+lightgbm>=4.3.0
+
+# ── Deep Learning: PyTorch CPU  (sentiment agent) ─────────────
+# Installed on your machine: torch 2.11.0+cpu  — already fine.
+# To install from scratch:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+transformers>=4.40.0
+safetensors>=0.4.3
+
+# ── Deep Learning: TensorFlow CPU  (geopolitical agent) ───────
+# tensorflow-cpu 2.15 does NOT support Python 3.13.
+# First version with Python 3.13 wheels: 2.20.0
+# Loads Model_A/B/C_{PAIR}.keras via tf.keras.models.load_model()
+tensorflow-cpu>=2.20.0
+
+# ── NLP ───────────────────────────────────────────────────────
+feedparser>=6.0.0
+
+# ── Market Data ───────────────────────────────────────────────
+yfinance>=0.2.38
+
+# ── Stats ─────────────────────────────────────────────────────
+statsmodels>=0.14.0
+
+# ── Technical Indicators ──────────────────────────────────────
+ta>=0.11.0
+
+# ── HTTP / API ────────────────────────────────────────────────
+openai>=1.30.0
+requests>=2.31.0
+
+# ── Terminal colours (all agents) ─────────────────────────────
+colorama>=0.4.6
+
+# ── Utilities ─────────────────────────────────────────────────
+tqdm>=4.66.0
+python-dotenv>=1.0.0
+# ── API (FastAPI server) ─────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0

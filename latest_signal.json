@@ -1,0 +1,112 @@
+{
+  "pair": "EURJPY",
+  "timestamp": "2026-04-21T19:29:57.970169",
+  "final_signal": "hold",
+  "final_confidence": 0.3913514383809366,
+  "final_probs": {
+    "buy": 0.0,
+    "hold": 1.0,
+    "sell": 0.0
+  },
+  "decision_method": "rule_based",
+  "decision_reason": "Weighted decision (sent, corr, macro): HOLD leads.",
+  "explanation": "EURJPY trading signal remains HOLD with 39.1% confidence. Sentiment analysis suggests a strong HOLD stance at 68.2%, while macroeconomic indicators lean towards SELL at 58.5%. Caution is advised due to conflicting signals and low overall confidence.",
+  "agents": {
+    "sentiment": {
+      "signal": "hold",
+      "confidence": 0.681820022888852,
+      "probs": {
+        "buy": 0.2589493819879478,
+        "hold": 0.681820022888852,
+        "sell": 0.05923060943500887
+      },
+      "model_votes": {
+        "lr": {
+          "buy": 0.37668753630976387,
+          "hold": 0.46192155208555236,
+          "sell": 0.16139091160468372
+        },
+        "lgb": {
+          "buy": 0.1865542782092188,
+          "hold": 0.7699519516193727,
+          "sell": 0.04349377017140836
+        },
+        "textcnn": {
+          "buy": 0.3594837355427444,
+          "hold": 0.5125653127208352,
+          "sell": 0.12795094889588654
+        },
+        "bilstm": {
+          "buy": 0.09728553225868382,
+          "hold": 0.8999410610646009,
+          "sell": 0.0027734011004213245
+        },
+        "transformer": {
+          "buy": 0.3204597935080528,
+          "hold": 0.6265049800276756,
+          "sell": 0.05303522637113929
+        }
+      },
+      "articles_used": 20
+    },
+    "correlation": {
+      "signal": "hold",
+      "confidence": 0.347,
+      "probs": {
+        "buy": 0.86697382057895,
+        "hold": 0.08868411961403333,
+        "sell": 0.044342059807016665
+      },
+      "sharpe": -0.6030031011127907,
+      "last_proba_up": 0.9513428211212158,
+      "last_regime": 0.05674360389146098,
+      "score": 0.38307019374000095,
+      "available": true
+    },
+    "geopolitical": {
+      "signal": "hold",
+      "confidence": 0.333,
+      "probs": {
+        "buy": 0.333,
+        "hold": 0.334,
+        "sell": 0.333
+      },
+      "model_votes": {},
+      "agreement": "N/A",
+      "strength": "N/A",
+      "close_price": null,
+      "date": "",
+      "available": false
+    },
+    "technical": {
+      "signal": "hold",
+      "confidence": 0.3333333333333333,
+      "probs": {
+        "buy": 0.3333333333333333,
+        "hold": 0.3333333333333333,
+        "sell": 0.3333333333333333
+      },
+      "tf_votes": {},
+      "available": false
+    },
+    "macro": {
+      "signal": "sell",
+      "confidence": 0.5850000000000001,
+      "probs": {
+        "buy": 0.06499999999999999,
+        "hold": 0.35,
+        "sell": 0.5850000000000001
+      },
+      "pair_score": -0.8,
+      "base_score": -0.5,
+      "quote_score": 0.3,
+      "summary": "EUR/USD edges lower due to strong US Retail Sales and weaker Eurozone sentiment",
+      "drivers": [
+        "US Retail Sales beat forecasts",
+        "weaker Eurozone sentiment",
+        "US Dollar recovery"
+      ],
+      "available": true
+    }
+  }
+}
