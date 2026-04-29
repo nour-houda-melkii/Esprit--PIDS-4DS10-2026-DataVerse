@@ -215,11 +215,59 @@ const SCENARIOS = [
 ]
 
 // ─── API response shape ───────────────────────────────────────────────────────
-type SentimentApiResponse = {
-  signal: "buy" | "hold" | "sell"
-  confidence: number          // 0–1
+type PredictApiResponse = {
+  signal: "BUY" | "SELL" | "HOLD"
+  confidence: number          // 0–100
   probs: { buy: number; hold: number; sell: number }
-  articles?: number
+  gated: boolean
+  method: string
+  reason: string
+  explanation: string
+  timestamp: string
+  sentiment: {
+    signal: string
+    confidence: number
+    probs: { buy: number; hold: number; sell: number }
+    model_votes: Record<string, string>
+    articles: number
+    available: boolean
+  }
+  correlation: {
+    signal: string
+    confidence: number
+    probs: { buy: number; hold: number; sell: number }
+    sharpe: number
+    regime: number
+    score: number
+    available: boolean
+  }
+  geopolitical: {
+    signal: string
+    confidence: number
+    probs: { buy: number; hold: number; sell: number }
+    model_votes: Record<string, string>
+    agreement: string
+    strength: string
+    available: boolean
+  }
+  technical: {
+    signal: string
+    confidence: number
+    probs: { buy: number; hold: number; sell: number }
+    tf_votes: Record<string, string>
+    available: boolean
+  }
+  macro: {
+    signal: string
+    confidence: number
+    probs: { buy: number; hold: number; sell: number }
+    pair_score: number
+    base_score: number
+    quote_score: number
+    summary: string
+    drivers: string[]
+    available: boolean
+  }
   error?: string
 }
 
@@ -232,6 +280,18 @@ type LivePairData = {
   lastUpdated: Date | null
   articles: number
   probs: { buy: number; hold: number; sell: number } | null
+  // New fields from comprehensive prediction
+  method: string | null
+  reason: string | null
+  explanation: string | null
+  gated: boolean
+  agents: {
+    sentiment?: PredictApiResponse['sentiment']
+    correlation?: PredictApiResponse['correlation']
+    geopolitical?: PredictApiResponse['geopolitical']
+    technical?: PredictApiResponse['technical']
+    macro?: PredictApiResponse['macro']
+  }
 }
 
 // ─── Map API signal → our signal type ────────────────────────────────────────
@@ -276,6 +336,11 @@ function useLiveData(pairs: Pair[]) {
         lastUpdated: null,
         articles:    0,
         probs:       null,
+        method:      null,
+        reason:      null,
+        explanation: null,
+        gated:       false,
+        agents:      {},
       }
     })
     return init
@@ -292,17 +357,17 @@ function useLiveData(pairs: Pair[]) {
     setData(prev => ({ ...prev, [pair]: { ...prev[pair], loading: true, error: null } }))
 
     try {
-      const res = await fetch(`/api/sentiment?pair=${encodeURIComponent(pair)}`, {
+      const res = await fetch(`/api/predict?pair=${encodeURIComponent(pair)}&use_llm=true`, {
         signal: ctrl.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json: SentimentApiResponse = await res.json()
+      const json: PredictApiResponse = await res.json()
 
       if (json.error) throw new Error(json.error)
 
-      const signal     = mapSignal(json.signal)
-      const conviction = Math.round(json.confidence * 100)
-      const growth     = deriveGrowth(signal, json.confidence, GROWTH_STATIC[pair])
+      const signal     = json.signal  // Already uppercase from API
+      const conviction = Math.round(json.confidence)  // Already 0-100 from API
+      const growth     = deriveGrowth(signal, json.confidence / 100, GROWTH_STATIC[pair])
 
       setData(prev => ({
         ...prev,
@@ -313,8 +378,19 @@ function useLiveData(pairs: Pair[]) {
           loading:     false,
           error:       null,
           lastUpdated: new Date(),
-          articles:    json.articles ?? 0,
+          articles:    json.sentiment?.articles ?? 0,
           probs:       json.probs ?? null,
+          method:      json.method ?? null,
+          reason:      json.reason ?? null,
+          explanation: json.explanation ?? null,
+          gated:       json.gated ?? false,
+          agents: {
+            sentiment:    json.sentiment,
+            correlation:  json.correlation,
+            geopolitical: json.geopolitical,
+            technical:    json.technical,
+            macro:        json.macro,
+          },
         },
       }))
     } catch (err: any) {
@@ -418,33 +494,63 @@ function LiveBadge({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// MODEL VOTES PANEL — shown in Reasoning tab when live data available
+// AGENT SIGNALS PANEL — shown in Reasoning tab when live data available
 // ════════════════════════════════════════════════════════════════════════════
-function ModelVotesPanel({ probs }: { probs: { buy: number; hold: number; sell: number } }) {
-  const entries: { label: string; key: keyof typeof probs; color: string; bar: string }[] = [
-    { label: "BUY",  key: "buy",  color: "text-emerald-400", bar: "bg-emerald-500" },
-    { label: "HOLD", key: "hold", color: "text-amber-400",   bar: "bg-amber-500" },
-    { label: "SELL", key: "sell", color: "text-rose-400",    bar: "bg-rose-500" },
-  ]
+function AgentSignalsPanel({ agents }: { agents: LivePairData['agents'] }) {
+  const availableAgents = Object.entries(agents).filter(([_, data]) => data?.available)
+  
+  if (availableAgents.length === 0) return null
+
   return (
-    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-4">
-      <p className="text-[9px] font-black uppercase tracking-widest text-blue-400 mb-3">Ensemble Model Probabilities</p>
-      <div className="space-y-2.5">
-        {entries.map(e => (
-          <div key={e.key}>
+    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-4 space-y-4">
+      <p className="text-[9px] font-black uppercase tracking-widest text-blue-400 mb-3">
+        Agent Consensus ({availableAgents.length} active)
+      </p>
+      
+      {availableAgents.map(([name, data]) => {
+        if (!data) return null
+        const signal = (data.signal || 'HOLD').toUpperCase() as 'BUY' | 'SELL' | 'HOLD'
+        const c = sc(signal)
+        
+        return (
+          <div key={name} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-slate-400">{name}</span>
+              <SignalPill s={signal} size="sm" />
+            </div>
             <div className="flex justify-between mb-1">
-              <span className={`text-[10px] font-black ${e.color}`}>{e.label}</span>
-              <span className="text-[10px] text-slate-400">{(probs[e.key] * 100).toFixed(1)}%</span>
+              <span className="text-[10px] text-slate-500">Confidence</span>
+              <span className="text-[10px] font-black text-slate-400">
+                {(data.confidence * 100).toFixed(1)}%
+              </span>
             </div>
             <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-              <div className={`h-full ${e.bar} rounded-full`} style={{ width: `${probs[e.key] * 100}%` }} />
+              <div 
+                className={`h-full ${c.bar} rounded-full`} 
+                style={{ width: `${data.confidence * 100}%` }} 
+              />
             </div>
+            
+            {/* Show probabilities */}
+            {data.probs && (
+              <div className="grid grid-cols-3 gap-1 mt-2">
+                {[
+                  { label: "BUY", key: "buy" as const, color: "text-emerald-400" },
+                  { label: "HOLD", key: "hold" as const, color: "text-amber-400" },
+                  { label: "SELL", key: "sell" as const, color: "text-rose-400" },
+                ].map(e => (
+                  <div key={e.key} className="text-center">
+                    <p className={`text-[9px] ${e.color}`}>{e.label}</p>
+                    <p className="text-[9px] text-slate-500">
+                      {(data.probs![e.key] * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        ))}
-      </div>
-      <p className="text-[9px] text-slate-600 mt-3">
-        Weighted ensemble: DistilBERT 40% · BiLSTM 25% · TextCNN 15% · LightGBM 12% · LogReg 8%
-      </p>
+        )
+      })}
     </div>
   )
 }
@@ -702,6 +808,16 @@ function OverviewTab({
                   <SignalPill s={sig} size="lg" />
                   <span className="text-[10px] text-slate-500">{TIMEFRAME[pair]}</span>
                   <LiveBadge pairData={pd} onRefetch={() => onRefetch(pair)} />
+                  {pd.method && (
+                    <span className="text-[9px] px-2 py-1 rounded-full bg-purple-500/10 border border-purple-500/25 text-purple-400 font-bold">
+                      {pd.method === 'meta_model' ? 'META-MODEL' : 'RULE-BASED'}
+                    </span>
+                  )}
+                  {pd.gated && (
+                    <span className="text-[9px] px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 font-bold">
+                      CONFIDENCE GATED
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -816,7 +932,7 @@ function OverviewTab({
                 <span className="text-white font-bold">Math:</span>{" "}
                 ${fmt(capital)} × (1 + {g >= 0 ? "+" : ""}{g.toFixed(1)}%) = ${fmt(projected, 0)} projected.
                 {pd.lastUpdated
-                  ? ` Signal derived from live NLP ensemble (${pd.articles} articles). Conviction ${conv}%.`
+                  ? ` Signal derived from live AI prediction (${pd.articles} articles). Conviction ${conv}%.`
                   : ` Expected move derived from conviction (${conv}%) and volatility (${VOLATILITY[pair]}).`}
                 Risk/Reward {RR[pair]}: for every $1 risked, ${RR[pair].split(":")[0]} is targeted.
               </p>
@@ -1018,8 +1134,10 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
           <p className="text-xs text-slate-200 leading-relaxed">{r.summary}</p>
         </div>
 
-        {/* Live model votes — only shown when real data is available */}
-        {pd.probs && <ModelVotesPanel probs={pd.probs} />}
+        {/* Agent signals — only shown when live data available */}
+        {pd.agents && Object.keys(pd.agents).length > 0 && (
+          <AgentSignalsPanel agents={pd.agents} />
+        )}
 
         <div className="flex flex-wrap gap-1.5 mt-4">
           {r.agents.map(a => (
@@ -1029,7 +1147,7 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
           ))}
           {pd.lastUpdated && (
             <span className="rounded-full border border-emerald-500/25 bg-emerald-500/8 px-2.5 py-1 text-[9px] font-black text-emerald-400">
-              NLP ENSEMBLE AGENT
+              LIVE PREDICTION
             </span>
           )}
         </div>
@@ -1160,7 +1278,7 @@ function ScenariosTab({
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
           Select a macro shock to see how your {pair} trade performs. ARIA adjusts confidence, survival, and capital outcome based on how the scenario interacts with your signal.
-          {pd.lastUpdated && " Signal direction sourced from live NLP ensemble."}
+          {pd.lastUpdated && " Signal direction sourced from live AI prediction."}
         </p>
       </div>
 
@@ -1426,7 +1544,7 @@ function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
             {[
               { icon: LayoutDashboard, title: "Overview", desc: "Signal, live price, conviction score, capital projection, entry/TP/SL levels, and pair comparison chart." },
               { icon: Activity,        title: "Technical", desc: "Price action chart with TP/SL plotted, key support/resistance levels, indicators, and a 5-dimension signal radar." },
-              { icon: Brain,           title: "Reasoning", desc: "Every factor that drove the AI decision with contribution strength. Tap any card to read full detail. Live NLP ensemble probabilities shown when data is available." },
+              { icon: Brain,           title: "Reasoning", desc: "Every factor that drove the AI decision with contribution strength. Tap any card to read full detail. Live agent consensus shown when data is available." },
               { icon: FlaskConical,    title: "Scenarios", desc: "3 macro scenarios (Fed Hawkish, Risk-Off, Soft Landing). See how your trade survives each one with the full decision chain." },
               { icon: Globe,           title: "Macro",     desc: "Interest rate differential, economic data comparison, and upcoming events that can move the pair." },
             ].map(item => (
@@ -1442,9 +1560,9 @@ function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
             ))}
           </div>
           <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-4">
-            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">⚡ Live Sentiment</p>
+            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">⚡ Live Predictions</p>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Signals are fetched live from your NLP ensemble (LR · LightGBM · TextCNN · BiLSTM · DistilBERT). Static fallbacks are used if the API is unreachable. Click any RETRY badge to re-fetch.
+              Signals are fetched live from your comprehensive AI prediction system combining 5 agents: Sentiment (NLP ensemble), Technical, Macro, Geopolitical, and Correlation analysis. Static fallbacks are used if the API is unreachable. Click any RETRY badge to re-fetch.
             </p>
           </div>
         </div>
