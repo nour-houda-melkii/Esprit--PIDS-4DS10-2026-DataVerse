@@ -1,0 +1,169 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* FX-AlphaLab - Fintech Marketing Website Theme */
+:root {
+  --background: #141104;
+  --foreground: #FFF8E7;
+
+  --card: #1C1806;
+  --card-foreground: #FFF8E7;
+
+  --popover: #1C1806;
+  --popover-foreground: #FFF8E7;
+
+  /* MAIN GOLD */
+  --primary: #FFD54A;
+  --primary-foreground: #1A1403;
+
+  /* DARK GOLD */
+  --secondary: #E0A800;
+  --secondary-foreground: #FFF8E7;
+
+  /* PROFIT GREEN */
+  --accent: #22C55E;
+  --accent-foreground: #FFFFFF;
+
+  /* LOSS RED */
+  --destructive: #FF4D4F;
+  --destructive-foreground: #FFFFFF;
+
+  /* UI */
+  --muted: #241E09;
+  --muted-foreground: #C9A227;
+
+  --border: rgba(255, 213, 74, 0.15);
+
+  --input: #1C1806;
+
+  /* REMOVE BLUE */
+  --ring: #FFD54A;
+
+  /* CHART COLORS */
+  --chart-1: #FFD54A;
+  --chart-2: #E0A800;
+  --chart-3: #22C55E;
+  --chart-4: #FFF8E7;
+  --chart-5: #FF4D4F;
+
+  --radius: 0.8rem;
+
+  /* SIDEBAR */
+  --sidebar: #100D03;
+  --sidebar-foreground: #FFF8E7;
+
+  --sidebar-primary: #FFD54A;
+  --sidebar-primary-foreground: #1A1403;
+
+  --sidebar-accent: #1C1806;
+  --sidebar-accent-foreground: #FFF8E7;
+
+  --sidebar-border: rgba(255, 213, 74, 0.12);
+
+  /* REMOVE BLUE */
+  --sidebar-ring: #FFD54A;
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+/* ── Trading animated background ── */
+@keyframes floatUp {
+  0%   { transform: translateY(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.8; }
+  100% { transform: translateY(-100vh); opacity: 0; }
+}
+@keyframes candleGrow {
+  0%   { transform: scaleY(0); opacity: 0; }
+  30%  { opacity: 1; }
+  70%  { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(0); opacity: 0; }
+}
+@keyframes signalPulse {
+  0%   { transform: scale(0.5); opacity: 0; }
+  40%  { transform: scale(1.2); opacity: 1; }
+  70%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.5); opacity: 0; }
+}
+@keyframes priceLine {
+  0%   { width: 0%; opacity: 0; }
+  20%  { opacity: 0.6; }
+  80%  { opacity: 0.6; }
+  100% { width: 100%; opacity: 0; }
+}
+@keyframes tickerScroll {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+@keyframes orbPulse {
+  0%, 100% { opacity: 0.12; transform: scale(1); }
+  50%       { opacity: 0.25; transform: scale(1.1); }
+}
+@keyframes floatDiag {
+  0%   { transform: translate(0, 0) scale(0.8); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.8; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1.1); opacity: 0; }
+}
+@keyframes driftX {
+  0%   { transform: translateX(-10px); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 0.9; }
+  100% { transform: translateX(calc(100vw + 50px)); opacity: 0; }
+}
+@keyframes floatRandom {
+  0%   { transform: translate(0px, 0px) rotate(0deg); opacity: 0; }
+  10%  { opacity: 1; }
+  50%  { transform: translate(var(--mx), var(--my)) rotate(180deg); opacity: 0.9; }
+  90%  { opacity: 0.6; }
+  100% { transform: translate(var(--ex), var(--ey)) rotate(360deg); opacity: 0; }
+}
