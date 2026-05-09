@@ -611,13 +611,16 @@ function CurrencyTable() {
 
       {/* Footer */}
       <footer className="border-t border-[#334155]/50 px-6 py-12">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 md:flex-row">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary">
-              <span className="text-sm font-bold text-primary-foreground">FX</span>
-            </div>
-            <span className="font-semibold text-foreground">AlphaLab</span>
-          </div>
+       <div className="mb-8 flex flex-col items-center gap-2">
+  <img
+    src="/logo.png"
+    alt="FX-AlphaLab"
+    className="h-20 w-20 rounded-full border-2 border-primary object-cover"
+  />
+  <span className="text-lg font-black tracking-widest text-foreground">
+    <span className="text-primary">FX-</span>ALPHALAB
+  </span>
+</div>
           <p className="text-sm text-muted-foreground">
             2026 FX-AlphaLab. All rights reserved.
           </p>
@@ -635,7 +638,6 @@ function CurrencyTable() {
               Terms
             </Link>
           </div>
-        </div>
       </footer>
     </div>
   )

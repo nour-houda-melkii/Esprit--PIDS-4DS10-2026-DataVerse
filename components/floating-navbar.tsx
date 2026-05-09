@@ -60,13 +60,16 @@ export function FloatingNavbar() {
       )}
     >
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary">
-            <span className="text-lg font-bold text-primary-foreground">FX</span>
-          </div>
-          <span className="text-xl font-bold text-foreground">AlphaLab</span>
-        </Link>
+<Link href="/" className="flex items-center gap-3">
+  <img
+    src="/logo.png"
+    alt="FX-AlphaLab"
+    className="h-10 w-10 rounded-full border border-[#D4A017]/50 object-cover"
+  />
+  <span className="text-base font-black tracking-wide text-foreground">
+    <span className="text-primary">FX-</span>ALPHALAB
+  </span>
+</Link>
 
         {/* Desktop nav links */}
         <div className="hidden items-center gap-8 md:flex">

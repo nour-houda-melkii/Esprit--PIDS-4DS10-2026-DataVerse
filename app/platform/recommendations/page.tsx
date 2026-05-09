@@ -8,6 +8,7 @@ import {
   Eye, Globe, FlaskConical, LayoutDashboard, ArrowRight,
   HelpCircle, Zap, Layers, ChevronDown, ChevronUp,
   Flame, Snowflake, Wind, Wallet, RefreshCw, Wifi, WifiOff,
+  Loader2, Sparkles,
 } from "lucide-react"
 import {
   RadarChart, PolarGrid, PolarAngleAxis, Radar as ReRadar,
@@ -187,37 +188,69 @@ const REASONING: Record<Pair, ReasonData> = {
   },
 }
 
-const SCENARIOS = [
+// ─── Scenario type ────────────────────────────────────────────────────────────
+type PairEffect = {
+  direction: -1 | 0 | 1
+  magnitude: number
+}
+
+type Scenario = {
+  id:             string
+  name:           string
+  emoji:          string
+  probability:    number
+  shockType:      "bullish" | "bearish" | "neutral"
+  shockMagnitude: number
+  description:    string
+  macroContext:   string
+  triggerEvent:   string
+  pairEffects:    Record<string, PairEffect>
+}
+
+// ─── Fallback scenarios (used while loading or on error) ──────────────────────
+const FALLBACK_SCENARIOS: Scenario[] = [
   {
     id: "fed_hawkish", name: "Fed Hawkish Surprise", emoji: "🏦", probability: 28,
-    shockType: "bearish" as const, shockMagnitude: 0.72,
+    shockType: "bearish", shockMagnitude: 0.72,
     description: "Fed signals rates stay higher for longer, reversing cut expectations. USD rallies hard.",
     macroContext: "DXY spikes above 104. US 10Y yields jump 25–35bp. Risk assets sell off globally.",
     triggerEvent: "FOMC minutes, hawkish Fed speaker, or US CPI beats by 0.3%+",
-    pairEffects: { "EUR/USD": { direction: -1 as const, magnitude: 0.80 }, "GBP/USD": { direction: -1 as const, magnitude: 0.75 }, "USD/JPY": { direction: 1 as const, magnitude: 0.85 }, "USD/CHF": { direction: 1 as const, magnitude: 0.70 }, "EUR/GBP": { direction: 0 as const, magnitude: 0.10 }, "GBP/JPY": { direction: 1 as const, magnitude: 0.60 } },
+    pairEffects: {
+      "EUR/USD": { direction: -1, magnitude: 0.80 }, "GBP/USD": { direction: -1, magnitude: 0.75 },
+      "USD/JPY": { direction:  1, magnitude: 0.85 }, "USD/CHF": { direction:  1, magnitude: 0.70 },
+      "EUR/GBP": { direction:  0, magnitude: 0.10 }, "GBP/JPY": { direction:  1, magnitude: 0.60 },
+    },
   },
   {
     id: "risk_off", name: "Global Risk-Off Shock", emoji: "⚡", probability: 18,
-    shockType: "bearish" as const, shockMagnitude: 0.88,
+    shockType: "bearish", shockMagnitude: 0.88,
     description: "Geopolitical escalation triggers flight to safety into JPY and CHF.",
     macroContext: "JPY and CHF surge. VIX spikes above 25. Equities fall 3%+.",
     triggerEvent: "Major equity index drops 3%+ intraday, VIX spikes above 25",
-    pairEffects: { "EUR/USD": { direction: -1 as const, magnitude: 0.40 }, "GBP/USD": { direction: -1 as const, magnitude: 0.80 }, "USD/JPY": { direction: -1 as const, magnitude: 0.92 }, "USD/CHF": { direction: -1 as const, magnitude: 0.82 }, "EUR/GBP": { direction: 1 as const, magnitude: 0.50 }, "GBP/JPY": { direction: -1 as const, magnitude: 0.96 } },
+    pairEffects: {
+      "EUR/USD": { direction: -1, magnitude: 0.40 }, "GBP/USD": { direction: -1, magnitude: 0.80 },
+      "USD/JPY": { direction: -1, magnitude: 0.92 }, "USD/CHF": { direction: -1, magnitude: 0.82 },
+      "EUR/GBP": { direction:  1, magnitude: 0.50 }, "GBP/JPY": { direction: -1, magnitude: 0.96 },
+    },
   },
   {
     id: "soft_landing", name: "US Soft Landing", emoji: "🌤️", probability: 42,
-    shockType: "bullish" as const, shockMagnitude: 0.55,
+    shockType: "bullish", shockMagnitude: 0.55,
     description: "US inflation cools while labour market stays resilient. Rate cut expectations firm.",
     macroContext: "USD weakens moderately. EUR, GBP recover. Carry trades rewarded.",
     triggerEvent: "CPI MoM below 0.2% + NFP 150–200K + dovish Fed tone",
-    pairEffects: { "EUR/USD": { direction: 1 as const, magnitude: 0.65 }, "GBP/USD": { direction: 1 as const, magnitude: 0.55 }, "USD/JPY": { direction: -1 as const, magnitude: 0.40 }, "USD/CHF": { direction: -1 as const, magnitude: 0.50 }, "EUR/GBP": { direction: 0 as const, magnitude: 0.15 }, "GBP/JPY": { direction: 1 as const, magnitude: 0.45 } },
+    pairEffects: {
+      "EUR/USD": { direction:  1, magnitude: 0.65 }, "GBP/USD": { direction:  1, magnitude: 0.55 },
+      "USD/JPY": { direction: -1, magnitude: 0.40 }, "USD/CHF": { direction: -1, magnitude: 0.50 },
+      "EUR/GBP": { direction:  0, magnitude: 0.15 }, "GBP/JPY": { direction:  1, magnitude: 0.45 },
+    },
   },
 ]
 
 // ─── API response shape ───────────────────────────────────────────────────────
 type PredictApiResponse = {
   signal: "BUY" | "SELL" | "HOLD"
-  confidence: number          // 0–100
+  confidence: number
   probs: { buy: number; hold: number; sell: number }
   gated: boolean
   method: string
@@ -225,76 +258,57 @@ type PredictApiResponse = {
   explanation: string
   timestamp: string
   sentiment: {
-    signal: string
-    confidence: number
+    signal: string; confidence: number
     probs: { buy: number; hold: number; sell: number }
-    model_votes: Record<string, string>
-    articles: number
-    available: boolean
+    model_votes: Record<string, string>; articles: number; available: boolean
   }
   correlation: {
-    signal: string
-    confidence: number
+    signal: string; confidence: number
     probs: { buy: number; hold: number; sell: number }
-    sharpe: number
-    regime: number
-    score: number
-    available: boolean
+    sharpe: number; regime: number; score: number; available: boolean
   }
   geopolitical: {
-    signal: string
-    confidence: number
+    signal: string; confidence: number
     probs: { buy: number; hold: number; sell: number }
-    model_votes: Record<string, string>
-    agreement: string
-    strength: string
-    available: boolean
+    model_votes: Record<string, string>; agreement: string; strength: string; available: boolean
   }
   technical: {
-    signal: string
-    confidence: number
+    signal: string; confidence: number
     probs: { buy: number; hold: number; sell: number }
-    tf_votes: Record<string, string>
-    available: boolean
+    tf_votes: Record<string, string>; available: boolean
   }
   macro: {
-    signal: string
-    confidence: number
+    signal: string; confidence: number
     probs: { buy: number; hold: number; sell: number }
-    pair_score: number
-    base_score: number
-    quote_score: number
-    summary: string
-    drivers: string[]
-    available: boolean
+    pair_score: number; base_score: number; quote_score: number
+    summary: string; drivers: string[]; available: boolean
   }
   error?: string
 }
 
 type LivePairData = {
-  signal: "BUY" | "SELL" | "HOLD"
-  conviction: number          // 0–100
-  growth: number              // percent
-  loading: boolean
-  error: string | null
+  signal:      "BUY" | "SELL" | "HOLD"
+  conviction:  number
+  growth:      number
+  loading:     boolean
+  error:       string | null
   lastUpdated: Date | null
-  articles: number
-  probs: { buy: number; hold: number; sell: number } | null
-  // New fields from comprehensive prediction
-  method: string | null
-  reason: string | null
+  articles:    number
+  probs:       { buy: number; hold: number; sell: number } | null
+  method:      string | null
+  reason:      string | null
   explanation: string | null
-  gated: boolean
+  gated:       boolean
   agents: {
-    sentiment?: PredictApiResponse['sentiment']
-    correlation?: PredictApiResponse['correlation']
-    geopolitical?: PredictApiResponse['geopolitical']
-    technical?: PredictApiResponse['technical']
-    macro?: PredictApiResponse['macro']
+    sentiment?:    PredictApiResponse["sentiment"]
+    correlation?:  PredictApiResponse["correlation"]
+    geopolitical?: PredictApiResponse["geopolitical"]
+    technical?:    PredictApiResponse["technical"]
+    macro?:        PredictApiResponse["macro"]
   }
 }
 
-// ─── Map API signal → our signal type ────────────────────────────────────────
+// ─── helpers ──────────────────────────────────────────────────────────────────
 function mapSignal(s: string): "BUY" | "SELL" | "HOLD" {
   const u = s.toUpperCase()
   if (u === "BUY")  return "BUY"
@@ -302,22 +316,58 @@ function mapSignal(s: string): "BUY" | "SELL" | "HOLD" {
   return "HOLD"
 }
 
-// ─── Derive expected growth from confidence + signal direction ────────────────
-// Keeps the number plausible (±0.5 to ±5%) and matches signal direction
 function deriveGrowth(signal: "BUY" | "SELL" | "HOLD", confidence: number, staticGrowth: number): number {
-  if (signal === "HOLD") return staticGrowth * 0.3   // muted when uncertain
+  if (signal === "HOLD") return staticGrowth * 0.3
   const dir   = signal === "BUY" ? 1 : -1
-  const scale = 0.5 + confidence * 4.5               // 0.5 – 5%
+  const scale = 0.5 + confidence * 4.5
   return parseFloat((dir * scale).toFixed(2))
 }
 
-// ─── Update RADAR Sentiment score from live API ───────────────────────────────
 function liveRadar(pair: Pair, probs: { buy: number; hold: number; sell: number } | null): Record<string, number> {
   const base = { ...RADAR[pair] }
   if (!probs) return base
-  // Sentiment dimension = strongest directional probability × 100
   const sentimentScore = Math.round(Math.max(probs.buy, probs.sell, probs.hold) * 100)
   return { ...base, Sentiment: sentimentScore }
+}
+
+// ─── computeOutcome ───────────────────────────────────────────────────────────
+function computeOutcome(
+  pair:       string,
+  signal:     "BUY" | "SELL" | "HOLD",
+  baseGrowth: number,
+  scenario:   Scenario,
+  capital:    number,
+) {
+  const effect     = scenario.pairEffects[pair] ?? { direction: 0 as const, magnitude: 0.3 }
+  const signalDir  = signal === "BUY" ? 1 : signal === "SELL" ? -1 : 0
+  const alignment  = signalDir * effect.direction
+  const shockImpact    = effect.magnitude * scenario.shockMagnitude
+  const adjustedGrowth = baseGrowth + alignment * shockImpact * 3.5
+  const survival    = Math.max(0.10, Math.min(0.97, 0.55 + alignment * 0.20 + (1 - scenario.shockMagnitude) * 0.15))
+  const baseConv    = (CONVICTION_STATIC[pair as Pair] ?? 60) / 100
+  const confidence  = Math.max(0.10, Math.min(0.98, baseConv + alignment * 0.15 - (1 - survival) * 0.20))
+  const decision: "PROCEED" | "REDUCE" | "SKIP" | "HOLD" =
+    signal === "HOLD" ? "HOLD"
+    : confidence >= 0.70 && survival >= 0.60 ? "PROCEED"
+    : confidence >= 0.50 || survival >= 0.45  ? "REDUCE"
+    : "SKIP"
+  return {
+    adjustedGrowth,
+    capitalOutcome: capital * (1 + adjustedGrowth / 100),
+    gainLoss:       capital * (adjustedGrowth / 100),
+    confidence,
+    survival,
+    decision,
+  }
+}
+
+// ─── signal colour helper ─────────────────────────────────────────────────────
+function sc(s: "BUY" | "SELL" | "HOLD") {
+  return {
+    BUY:  { hex: "#10b981", bar: "bg-emerald-500", text: "text-emerald-400", border: "border-emerald-500/40", bg: "bg-emerald-500/10", dot: "bg-emerald-400", glow: "0 0 60px rgba(16,185,129,0.12)" },
+    SELL: { hex: "#f43f5e", bar: "bg-rose-500",    text: "text-rose-400",    border: "border-rose-500/40",    bg: "bg-rose-500/10",    dot: "bg-rose-400",    glow: "0 0 60px rgba(244,63,94,0.12)" },
+    HOLD: { hex: "#f59e0b", bar: "bg-amber-500",   text: "text-amber-400",   border: "border-amber-500/40",   bg: "bg-amber-500/10",   dot: "bg-amber-400",   glow: "0 0 60px rgba(245,158,11,0.12)" },
+  }[s]
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -349,7 +399,6 @@ function useLiveData(pairs: Pair[]) {
   const abortRefs = useRef<Record<string, AbortController>>({})
 
   const fetchPair = useCallback(async (pair: Pair) => {
-    // Cancel any in-flight request for this pair
     abortRefs.current[pair]?.abort()
     const ctrl = new AbortController()
     abortRefs.current[pair] = ctrl
@@ -362,19 +411,16 @@ function useLiveData(pairs: Pair[]) {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json: PredictApiResponse = await res.json()
-
       if (json.error) throw new Error(json.error)
 
-      const signal     = json.signal  // Already uppercase from API
-      const conviction = Math.round(json.confidence)  // Already 0-100 from API
+      const signal     = json.signal
+      const conviction = Math.round(json.confidence)
       const growth     = deriveGrowth(signal, json.confidence / 100, GROWTH_STATIC[pair])
 
       setData(prev => ({
         ...prev,
         [pair]: {
-          signal,
-          conviction,
-          growth,
+          signal, conviction, growth,
           loading:     false,
           error:       null,
           lastUpdated: new Date(),
@@ -394,70 +440,29 @@ function useLiveData(pairs: Pair[]) {
         },
       }))
     } catch (err: any) {
-      if (err.name === "AbortError") return   // intentional cancel — no state update
+      if (err.name === "AbortError") return
       setData(prev => ({
         ...prev,
-        [pair]: {
-          ...prev[pair],
-          loading: false,
-          error: err.message ?? "Failed to fetch",
-        },
+        [pair]: { ...prev[pair], loading: false, error: err.message ?? "Failed to fetch" },
       }))
     }
   }, [])
 
-  // Fetch all portfolio pairs on mount and when pairs change
   useEffect(() => {
     pairs.forEach(p => fetchPair(p))
-    // Cleanup: abort all in-flight requests on unmount
     return () => { Object.values(abortRefs.current).forEach(c => c.abort()) }
   }, [pairs.join(",")]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const refetch = useCallback((pair: Pair) => fetchPair(pair), [fetchPair])
+  const refetch    = useCallback((pair: Pair) => fetchPair(pair), [fetchPair])
   const refetchAll = useCallback(() => pairs.forEach(p => fetchPair(p)), [pairs, fetchPair])
 
   return { data, refetch, refetchAll }
 }
 
-// ─── Convenience: read live value with static fallback ────────────────────────
-function useSignal(liveData: Record<string, LivePairData>, pair: Pair) {
-  return liveData[pair]?.signal ?? SIGNAL_STATIC[pair]
-}
-function useConviction(liveData: Record<string, LivePairData>, pair: Pair) {
-  return liveData[pair]?.conviction ?? CONVICTION_STATIC[pair]
-}
-function useGrowth(liveData: Record<string, LivePairData>, pair: Pair) {
-  return liveData[pair]?.growth ?? GROWTH_STATIC[pair]
-}
-
-function computeOutcome(pair: string, signal: "BUY" | "SELL" | "HOLD", baseGrowth: number, scenario: typeof SCENARIOS[0], capital: number) {
-  const effect = scenario.pairEffects[pair as Pair] ?? { direction: 0 as const, magnitude: 0.3 }
-  const signalDir = signal === "BUY" ? 1 : signal === "SELL" ? -1 : 0
-  const alignment = signalDir * effect.direction
-  const shockImpact = effect.magnitude * scenario.shockMagnitude
-  const adjustedGrowth = baseGrowth + alignment * shockImpact * 3.5
-  const survival = Math.max(0.10, Math.min(0.97, 0.55 + alignment * 0.20 + (1 - scenario.shockMagnitude) * 0.15))
-  const baseConv = (CONVICTION_STATIC[pair as Pair] ?? 60) / 100
-  const confidence = Math.max(0.10, Math.min(0.98, baseConv + alignment * 0.15 - (1 - survival) * 0.20))
-  const decision: "PROCEED" | "REDUCE" | "SKIP" | "HOLD" = signal === "HOLD" ? "HOLD" : confidence >= 0.70 && survival >= 0.60 ? "PROCEED" : confidence >= 0.50 || survival >= 0.45 ? "REDUCE" : "SKIP"
-  return { adjustedGrowth, capitalOutcome: capital * (1 + adjustedGrowth / 100), gainLoss: capital * (adjustedGrowth / 100), confidence, survival, decision }
-}
-
-// ─── signal colour helper ─────────────────────────────────────────────────────
-function sc(s: "BUY" | "SELL" | "HOLD") {
-  return {
-    BUY:  { hex: "#10b981", bar: "bg-emerald-500", text: "text-emerald-400", border: "border-emerald-500/40", bg: "bg-emerald-500/10", dot: "bg-emerald-400", glow: "0 0 60px rgba(16,185,129,0.12)" },
-    SELL: { hex: "#f43f5e", bar: "bg-rose-500",    text: "text-rose-400",    border: "border-rose-500/40",    bg: "bg-rose-500/10",    dot: "bg-rose-400",    glow: "0 0 60px rgba(244,63,94,0.12)" },
-    HOLD: { hex: "#f59e0b", bar: "bg-amber-500",   text: "text-amber-400",   border: "border-amber-500/40",   bg: "bg-amber-500/10",   dot: "bg-amber-400",   glow: "0 0 60px rgba(245,158,11,0.12)" },
-  }[s]
-}
-
 // ════════════════════════════════════════════════════════════════════════════
-// LIVE STATUS BADGE — shows per-pair fetch state
+// LIVE STATUS BADGE
 // ════════════════════════════════════════════════════════════════════════════
-function LiveBadge({
-  pairData, onRefetch,
-}: { pairData: LivePairData; onRefetch: () => void }) {
+function LiveBadge({ pairData, onRefetch }: { pairData: LivePairData; onRefetch: () => void }) {
   if (pairData.loading) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/10 px-2.5 py-1 text-[9px] font-bold text-blue-400">
@@ -494,11 +499,10 @@ function LiveBadge({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// AGENT SIGNALS PANEL — shown in Reasoning tab when live data available
+// AGENT SIGNALS PANEL
 // ════════════════════════════════════════════════════════════════════════════
-function AgentSignalsPanel({ agents }: { agents: LivePairData['agents'] }) {
+function AgentSignalsPanel({ agents }: { agents: LivePairData["agents"] }) {
   const availableAgents = Object.entries(agents).filter(([_, data]) => data?.available)
-  
   if (availableAgents.length === 0) return null
 
   return (
@@ -506,12 +510,10 @@ function AgentSignalsPanel({ agents }: { agents: LivePairData['agents'] }) {
       <p className="text-[9px] font-black uppercase tracking-widest text-blue-400 mb-3">
         Agent Consensus ({availableAgents.length} active)
       </p>
-      
       {availableAgents.map(([name, data]) => {
         if (!data) return null
-        const signal = (data.signal || 'HOLD').toUpperCase() as 'BUY' | 'SELL' | 'HOLD'
+        const signal = (data.signal || "HOLD").toUpperCase() as "BUY" | "SELL" | "HOLD"
         const c = sc(signal)
-        
         return (
           <div key={name} className="space-y-2">
             <div className="flex items-center justify-between">
@@ -525,25 +527,18 @@ function AgentSignalsPanel({ agents }: { agents: LivePairData['agents'] }) {
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-              <div 
-                className={`h-full ${c.bar} rounded-full`} 
-                style={{ width: `${data.confidence * 100}%` }} 
-              />
+              <div className={`h-full ${c.bar} rounded-full`} style={{ width: `${data.confidence * 100}%` }} />
             </div>
-            
-            {/* Show probabilities */}
             {data.probs && (
               <div className="grid grid-cols-3 gap-1 mt-2">
                 {[
-                  { label: "BUY", key: "buy" as const, color: "text-emerald-400" },
+                  { label: "BUY",  key: "buy"  as const, color: "text-emerald-400" },
                   { label: "HOLD", key: "hold" as const, color: "text-amber-400" },
                   { label: "SELL", key: "sell" as const, color: "text-rose-400" },
                 ].map(e => (
                   <div key={e.key} className="text-center">
                     <p className={`text-[9px] ${e.color}`}>{e.label}</p>
-                    <p className="text-[9px] text-slate-500">
-                      {(data.probs![e.key] * 100).toFixed(0)}%
-                    </p>
+                    <p className="text-[9px] text-slate-500">{(data.probs![e.key] * 100).toFixed(0)}%</p>
                   </div>
                 ))}
               </div>
@@ -559,9 +554,9 @@ function AgentSignalsPanel({ agents }: { agents: LivePairData['agents'] }) {
 // ATOMS
 // ════════════════════════════════════════════════════════════════════════════
 function SignalPill({ s, size = "md" }: { s: "BUY" | "SELL" | "HOLD"; size?: "sm" | "md" | "lg" }) {
-  const c = sc(s)
+  const c    = sc(s)
   const Icon = s === "BUY" ? TrendingUp : s === "SELL" ? TrendingDown : Minus
-  const sz = { sm: "px-2 py-0.5 text-[9px] gap-1", md: "px-3 py-1 text-[11px] gap-1.5", lg: "px-4 py-1.5 text-sm gap-2" }[size]
+  const sz   = { sm: "px-2 py-0.5 text-[9px] gap-1", md: "px-3 py-1 text-[11px] gap-1.5", lg: "px-4 py-1.5 text-sm gap-2" }[size]
   return (
     <span className={`inline-flex items-center rounded-full border font-black tracking-widest ${sz} ${c.bg} ${c.border} ${c.text}`}>
       <Icon className={size === "lg" ? "h-3.5 w-3.5" : "h-3 w-3"} />
@@ -573,9 +568,9 @@ function SignalPill({ s, size = "md" }: { s: "BUY" | "SELL" | "HOLD"; size?: "sm
 function DecisionBadge({ d }: { d: "PROCEED" | "REDUCE" | "SKIP" | "HOLD" }) {
   const m = {
     PROCEED: { cls: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400", I: CheckCircle },
-    REDUCE:  { cls: "bg-amber-500/10 border-amber-500/30 text-amber-400",       I: AlertTriangle },
-    SKIP:    { cls: "bg-rose-500/10 border-rose-500/30 text-rose-400",          I: Shield },
-    HOLD:    { cls: "bg-slate-500/10 border-slate-500/30 text-slate-400",       I: Minus },
+    REDUCE:  { cls: "bg-amber-500/10  border-amber-500/30  text-amber-400",    I: AlertTriangle },
+    SKIP:    { cls: "bg-rose-500/10   border-rose-500/30   text-rose-400",     I: Shield },
+    HOLD:    { cls: "bg-slate-500/10  border-slate-500/30  text-slate-400",    I: Minus },
   }[d]
   return (
     <span className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black ${m.cls}`}>
@@ -603,9 +598,9 @@ function PortfolioCards({
   return (
     <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
       {portfolios.map((p, i) => {
-        const isActive = i === active
-        const validPairs = p.currencyPairs.filter(x => PAIRS.includes(x as Pair)) as Pair[]
-        const netGrowth = validPairs.length > 0
+        const isActive    = i === active
+        const validPairs  = p.currencyPairs.filter(x => PAIRS.includes(x as Pair)) as Pair[]
+        const netGrowth   = validPairs.length > 0
           ? validPairs.reduce((s, pair) => s + (liveData[pair]?.growth ?? GROWTH_STATIC[pair]), 0) / validPairs.length
           : 0
         const isPos = netGrowth >= 0
@@ -666,15 +661,16 @@ function PairSelector({
     <div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {pairs.map((p, idx) => {
-          const pd   = liveData[p]
-          const s    = pd.signal
-          const c    = sc(s)
+          const pd      = liveData[p]
+          const s       = pd.signal
+          const c       = sc(s)
           const isActive = p === active
           const [base, quote] = p.split("/")
           const g    = pd.growth
           const conv = pd.conviction
           const change = CHANGE[p]
           const gain = perPair * (g / 100)
+
           return (
             <button
               key={p}
@@ -708,7 +704,7 @@ function PairSelector({
                   <div className="flex items-center gap-1.5">
                     <SignalPill s={s} size="sm" />
                     {pd.loading && <RefreshCw className="h-2.5 w-2.5 text-blue-400 animate-spin" />}
-                    {pd.error && <WifiOff className="h-2.5 w-2.5 text-rose-400" />}
+                    {pd.error   && <WifiOff   className="h-2.5 w-2.5 text-rose-400" />}
                   </div>
                   <div className="text-right">
                     <p className="font-mono text-xs font-black text-white">{PRICE[p]}</p>
@@ -732,8 +728,8 @@ function PairSelector({
                 <div className="grid grid-cols-3 gap-1 pt-3 border-t border-white/[0.05]">
                   {[
                     { label: "Capital", value: `$${Math.round(perPair / 1000)}k` },
-                    { label: "Move", value: `${g >= 0 ? "+" : ""}${g.toFixed(1)}%`, colored: true, pos: g >= 0 },
-                    { label: "P&L", value: `${gain >= 0 ? "+" : "−"}$${Math.abs(gain) < 1000 ? Math.abs(gain).toFixed(0) : (Math.abs(gain)/1000).toFixed(1)+"k"}`, colored: true, pos: gain >= 0 },
+                    { label: "Move",    value: `${g >= 0 ? "+" : ""}${g.toFixed(1)}%`, colored: true, pos: g >= 0 },
+                    { label: "P&L",     value: `${gain >= 0 ? "+" : "−"}$${Math.abs(gain) < 1000 ? Math.abs(gain).toFixed(0) : (Math.abs(gain)/1000).toFixed(1)+"k"}`, colored: true, pos: gain >= 0 },
                   ].map(stat => (
                     <div key={stat.label} className="text-center">
                       <p className="text-[8px] text-slate-600 mb-0.5">{stat.label}</p>
@@ -771,22 +767,22 @@ function PairSelector({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TAB CONTENT — OVERVIEW
+// TAB — OVERVIEW
 // ════════════════════════════════════════════════════════════════════════════
 function OverviewTab({
   pair, capital, portfolioPairs, liveData, onRefetch,
 }: { pair: Pair; capital: number; portfolioPairs: Pair[]; liveData: Record<string, LivePairData>; onRefetch: (p: Pair) => void }) {
-  const pd   = liveData[pair]
-  const sig  = pd.signal
-  const c    = sc(sig)
-  const g    = pd.growth
-  const conv = pd.conviction
+  const pd    = liveData[pair]
+  const sig   = pd.signal
+  const c     = sc(sig)
+  const g     = pd.growth
+  const conv  = pd.conviction
   const price = PRICE[pair], change = CHANGE[pair], t = TARGET[pair]
-  const r = REASONING[pair]
-  const histData = HISTORY[pair].map((v, i) => ({ i, v }))
-  const projected = capital * (1 + g / 100)
-  const gain = projected - capital
-  const allData = portfolioPairs.map(p => ({ pair: p, g: liveData[p]?.growth ?? GROWTH_STATIC[p], fill: sc(liveData[p]?.signal ?? SIGNAL_STATIC[p]).hex }))
+  const r     = REASONING[pair]
+  const histData   = HISTORY[pair].map((v, i) => ({ i, v }))
+  const projected  = capital * (1 + g / 100)
+  const gain       = projected - capital
+  const allData    = portfolioPairs.map(p => ({ pair: p, g: liveData[p]?.growth ?? GROWTH_STATIC[p], fill: sc(liveData[p]?.signal ?? SIGNAL_STATIC[p]).hex }))
   const [showCalc, setShowCalc] = useState(false)
 
   return (
@@ -810,7 +806,7 @@ function OverviewTab({
                   <LiveBadge pairData={pd} onRefetch={() => onRefetch(pair)} />
                   {pd.method && (
                     <span className="text-[9px] px-2 py-1 rounded-full bg-purple-500/10 border border-purple-500/25 text-purple-400 font-bold">
-                      {pd.method === 'meta_model' ? 'META-MODEL' : 'RULE-BASED'}
+                      {pd.method === "meta_model" ? "META-MODEL" : "RULE-BASED"}
                     </span>
                   )}
                   {pd.gated && (
@@ -830,7 +826,6 @@ function OverviewTab({
             </div>
           </div>
 
-          {/* conviction bar */}
           <div className="mb-5">
             <div className="flex justify-between items-center mb-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">AI Conviction</p>
@@ -841,20 +836,18 @@ function OverviewTab({
             </div>
           </div>
 
-          {/* summary */}
           <div className={`rounded-2xl border p-4 ${c.bg} ${c.border}`}>
             <p className={`text-[9px] font-black uppercase tracking-widest mb-1.5 ${c.text}`}>{r.headline}</p>
             <p className="text-xs text-slate-300 leading-relaxed">{r.summary}</p>
           </div>
 
-          {/* sparkline */}
           <div className="mt-4">
             <p className="text-[9px] text-slate-600 uppercase tracking-widest mb-2">14-Period Price</p>
             <ResponsiveContainer width="100%" height={50}>
               <AreaChart data={histData} margin={{ top: 2, right: 0, left: 0, bottom: 2 }}>
                 <defs>
                   <linearGradient id={`g-${pair}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={c.hex} stopOpacity={0.3} />
+                    <stop offset="5%"  stopColor={c.hex} stopOpacity={0.3} />
                     <stop offset="95%" stopColor={c.hex} stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -869,9 +862,9 @@ function OverviewTab({
       {/* Trade stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { icon: Clock, label: "Timeframe", value: TIMEFRAME[pair], color: "text-white" },
-          { icon: Target, label: "Pip Target", value: `~${PIPS[pair]}`, color: "text-white" },
-          { icon: BarChart2, label: "Risk/Reward", value: RR[pair], color: "text-white" },
+          { icon: Clock,    label: "Timeframe",   value: TIMEFRAME[pair],  color: "text-white" },
+          { icon: Target,   label: "Pip Target",  value: `~${PIPS[pair]}`, color: "text-white" },
+          { icon: BarChart2, label: "Risk/Reward", value: RR[pair],         color: "text-white" },
           {
             icon: VOLATILITY[pair] === "HIGH" ? Flame : VOLATILITY[pair] === "LOW" ? Snowflake : Wind,
             label: "Volatility",
@@ -900,9 +893,9 @@ function OverviewTab({
         <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
           <div className="grid grid-cols-3 divide-x divide-white/[0.05]">
             {[
-              { label: "Allocated", value: `$${fmt(capital)}`, sub: "Your split", color: "text-white" },
-              { label: "Projected", value: `$${fmt(projected, 0)}`, sub: `${g >= 0 ? "+" : ""}${g.toFixed(1)}% growth`, color: g >= 0 ? "text-emerald-400" : "text-rose-400" },
-              { label: "Net P&L", value: `${gain >= 0 ? "+" : "−"}$${fmt(Math.abs(gain), 0)}`, sub: g >= 0 ? "profit" : "loss", color: gain >= 0 ? "text-emerald-400" : "text-rose-400" },
+              { label: "Allocated",  value: `$${fmt(capital)}`,            sub: "Your split",                             color: "text-white" },
+              { label: "Projected",  value: `$${fmt(projected, 0)}`,       sub: `${g >= 0 ? "+" : ""}${g.toFixed(1)}% growth`, color: g >= 0 ? "text-emerald-400" : "text-rose-400" },
+              { label: "Net P&L",    value: `${gain >= 0 ? "+" : "−"}$${fmt(Math.abs(gain), 0)}`, sub: g >= 0 ? "profit" : "loss", color: gain >= 0 ? "text-emerald-400" : "text-rose-400" },
             ].map(s => (
               <div key={s.label} className="px-4 py-5 text-center">
                 <p className="text-[9px] uppercase tracking-widest text-slate-600 mb-2">{s.label}</p>
@@ -965,7 +958,7 @@ function OverviewTab({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TAB CONTENT — TECHNICAL
+// TAB — TECHNICAL
 // ════════════════════════════════════════════════════════════════════════════
 function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string, LivePairData> }) {
   const pd   = liveData[pair]
@@ -974,14 +967,13 @@ function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
   const tech = REASONING[pair].technical
   const t    = TARGET[pair]
   const hist = HISTORY[pair]
-  const radarData = Object.entries(liveRadar(pair, pd.probs)).map(([k, v]) => ({ subject: k, value: v, fullMark: 100 }))
-  const priceData = hist.map((v, i) => ({ i, v, sma: i >= 4 ? hist.slice(i - 4, i + 1).reduce((a, b) => a + b) / 5 : v }))
+  const radarData  = Object.entries(liveRadar(pair, pd.probs)).map(([k, v]) => ({ subject: k, value: v, fullMark: 100 }))
+  const priceData  = hist.map((v, i) => ({ i, v, sma: i >= 4 ? hist.slice(i - 4, i + 1).reduce((a, b) => a + b) / 5 : v }))
   const yMin = Math.min(parseFloat(t.sl), hist[0]) * 0.9993
   const yMax = Math.max(parseFloat(t.tp), hist[hist.length - 1]) * 1.0007
 
   return (
     <div className="space-y-5">
-      {/* Price chart */}
       <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -994,7 +986,7 @@ function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
           <ComposedChart data={priceData} margin={{ top: 15, right: 55, left: 5, bottom: 5 }}>
             <defs>
               <linearGradient id="pcg" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={c.hex} stopOpacity={0.2} />
+                <stop offset="5%"  stopColor={c.hex} stopOpacity={0.2} />
                 <stop offset="95%" stopColor={c.hex} stopOpacity={0} />
               </linearGradient>
             </defs>
@@ -1019,7 +1011,6 @@ function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
         </div>
       </div>
 
-      {/* Key levels */}
       <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] p-5">
         <div className="flex items-center gap-2 mb-4">
           <Layers className="h-4 w-4 text-slate-400" />
@@ -1047,7 +1038,6 @@ function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
         </div>
       </div>
 
-      {/* Indicators + Radar */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -1056,10 +1046,10 @@ function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
           </div>
           <div className="space-y-3">
             {[
-              { label: "Trend", value: tech.trend, color: c.text },
+              { label: "Trend",    value: tech.trend,   color: c.text },
               { label: "RSI (14)", value: String(tech.rsi), color: tech.rsi > 70 ? "text-rose-400" : tech.rsi < 30 ? "text-emerald-400" : "text-white", note: tech.rsi > 70 ? "Overbought" : tech.rsi < 30 ? "Oversold" : "Neutral" },
-              { label: "Pattern", value: tech.pattern, color: c.text },
-              { label: "Volume", value: tech.volume, color: "text-white" },
+              { label: "Pattern",  value: tech.pattern, color: c.text },
+              { label: "Volume",   value: tech.volume,  color: "text-white" },
             ].map(ind => (
               <div key={ind.label} className="flex items-center justify-between py-2.5 border-b border-white/[0.04] last:border-0">
                 <p className="text-xs text-slate-500">{ind.label}</p>
@@ -1100,7 +1090,7 @@ function TechnicalTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TAB CONTENT — REASONING
+// TAB — REASONING
 // ════════════════════════════════════════════════════════════════════════════
 function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string, LivePairData> }) {
   const pd  = liveData[pair]
@@ -1108,7 +1098,7 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
   const r   = REASONING[pair]
   const c   = sc(sig)
   const [openFactor, setOpenFactor] = useState<number | null>(null)
-  const [openRisk, setOpenRisk]     = useState<number | null>(null)
+  const [openRisk,   setOpenRisk]   = useState<number | null>(null)
   const sv = {
     HIGH:   { cls: "text-rose-400 bg-rose-500/10 border-rose-500/30" },
     MEDIUM: { cls: "text-amber-400 bg-amber-500/10 border-amber-500/30" },
@@ -1117,7 +1107,6 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
 
   return (
     <div className="space-y-5">
-      {/* Banner */}
       <div className="rounded-3xl border p-5" style={{ borderColor: `${c.hex}28`, background: "linear-gradient(135deg,#0b1526,#070d1c)", boxShadow: c.glow }}>
         <div className="flex items-start gap-3 mb-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.09] shrink-0">
@@ -1133,12 +1122,7 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
           <p className={`text-[9px] font-black uppercase tracking-widest mb-1.5 ${c.text}`}>{r.headline}</p>
           <p className="text-xs text-slate-200 leading-relaxed">{r.summary}</p>
         </div>
-
-        {/* Agent signals — only shown when live data available */}
-        {pd.agents && Object.keys(pd.agents).length > 0 && (
-          <AgentSignalsPanel agents={pd.agents} />
-        )}
-
+        {pd.agents && Object.keys(pd.agents).length > 0 && <AgentSignalsPanel agents={pd.agents} />}
         <div className="flex flex-wrap gap-1.5 mt-4">
           {r.agents.map(a => (
             <span key={a} className="rounded-full border border-blue-500/25 bg-blue-500/8 px-2.5 py-1 text-[9px] font-black text-blue-400">
@@ -1153,7 +1137,6 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
         </div>
       </div>
 
-      {/* Factors */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Lightbulb className="h-4 w-4 text-amber-400" />
@@ -1164,7 +1147,8 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
           {r.factors.map((f, i) => {
             const isOpen = openFactor === i
             return (
-              <div key={i} className={`rounded-2xl border transition-all overflow-hidden cursor-pointer ${isOpen ? `${c.border} ${c.bg}` : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"}`}
+              <div key={i}
+                className={`rounded-2xl border transition-all overflow-hidden cursor-pointer ${isOpen ? `${c.border} ${c.bg}` : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"}`}
                 onClick={() => setOpenFactor(isOpen ? null : i)}>
                 <div className="flex items-center gap-3.5 p-4">
                   <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${c.border} ${c.bg}`}>
@@ -1201,7 +1185,6 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
         </div>
       </div>
 
-      {/* Risks */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="h-4 w-4 text-rose-400" />
@@ -1212,7 +1195,8 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
             const s = sv[risk.severity]
             const isOpen = openRisk === i
             return (
-              <div key={i} className={`rounded-2xl border transition-all overflow-hidden cursor-pointer ${isOpen ? "border-rose-500/30 bg-rose-500/[0.04]" : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"}`}
+              <div key={i}
+                className={`rounded-2xl border transition-all overflow-hidden cursor-pointer ${isOpen ? "border-rose-500/30 bg-rose-500/[0.04]" : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"}`}
                 onClick={() => setOpenRisk(isOpen ? null : i)}>
                 <div className="flex items-center gap-3.5 p-4">
                   <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${s.cls}`}>
@@ -1234,7 +1218,9 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
                       <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-3">
                         <p className="text-[9px] font-bold uppercase tracking-wider text-amber-400/70 mb-1">Recommended Response</p>
                         <p className="text-xs text-slate-400 leading-relaxed">
-                          {risk.severity === "HIGH" ? "Reduce position size 30–50% if this event is imminent. Set a hard stop and price alerts." : "Monitor. Trailing stop provides protection. No immediate action unless event materialises."}
+                          {risk.severity === "HIGH"
+                            ? "Reduce position size 30–50% if this event is imminent. Set a hard stop and price alerts."
+                            : "Monitor. Trailing stop provides protection. No immediate action unless event materialises."}
                         </p>
                       </div>
                     </div>
@@ -1250,182 +1236,343 @@ function ReasoningTab({ pair, liveData }: { pair: Pair; liveData: Record<string,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TAB CONTENT — SCENARIOS
+// useDynamicScenarios HOOK
+// ════════════════════════════════════════════════════════════════════════════
+function useDynamicScenarios(
+  pair:       Pair,
+  signal:     "BUY" | "SELL" | "HOLD",
+  conviction: number,
+  growth:     number,
+) {
+  const [scenarios, setScenarios] = useState<Scenario[]>(FALLBACK_SCENARIOS)
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [generated, setGenerated] = useState(false)
+  const [lastPair,  setLastPair]  = useState<string | null>(null)
+
+  const fetchScenarios = useCallback(async (force = false) => {
+    if (!force && lastPair === pair && generated) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/scenarios", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pair, signal, conviction, growth, price: PRICE[pair] }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
+      if (data.scenarios && data.scenarios.length >= 1) {
+        setScenarios(data.scenarios)
+        setGenerated(true)
+        setLastPair(pair)
+      } else {
+        throw new Error("No scenarios returned")
+      }
+    } catch (err: any) {
+      console.error("Scenario fetch failed:", err)
+      setError(err.message)
+      setScenarios(FALLBACK_SCENARIOS)
+    } finally {
+      setLoading(false)
+    }
+  }, [pair, signal, conviction, growth, lastPair, generated])
+
+  useEffect(() => { fetchScenarios() }, [pair]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { scenarios, loading, error, generated, refetch: () => fetchScenarios(true) }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TAB — SCENARIOS (dynamic, LLM-powered)
 // ════════════════════════════════════════════════════════════════════════════
 function ScenariosTab({
   pair, capital, portfolioPairs, liveData,
 }: { pair: Pair; capital: number; portfolioPairs: Pair[]; liveData: Record<string, LivePairData> }) {
-  const [activeId, setActiveId] = useState(SCENARIOS[0].id)
+  const pd   = liveData[pair]
+  const sig  = pd?.signal     ?? "HOLD"
+  const g    = pd?.growth     ?? 0
+  const conv = pd?.conviction ?? 50
+
+  const { scenarios, loading, error, generated, refetch } = useDynamicScenarios(pair, sig, conv, g)
+
+  const [activeId,  setActiveId]  = useState<string>(scenarios[0]?.id ?? "")
   const [showSteps, setShowSteps] = useState(false)
-  const pd  = liveData[pair]
-  const sig = pd.signal
-  const g   = pd.growth
-  const scenario = SCENARIOS.find(s => s.id === activeId)!
-  const outcome  = useMemo(() => computeOutcome(pair, sig, g, scenario, capital), [pair, sig, g, activeId, capital])
-  const allOut = SCENARIOS.map(s => ({
+
+  // Sync activeId when new scenarios arrive
+  useEffect(() => {
+    if (scenarios.length > 0 && !scenarios.find(s => s.id === activeId)) {
+      setActiveId(scenarios[0].id)
+      setShowSteps(false)
+    }
+  }, [scenarios]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const scenario = scenarios.find(s => s.id === activeId) ?? scenarios[0]
+  const outcome  = useMemo(
+    () => scenario ? computeOutcome(pair, sig, g, scenario, capital) : null,
+    [pair, sig, g, activeId, capital, scenarios], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  const allOut = scenarios.map(s => ({
     name: s.name.split(" ")[0],
     conf: Math.round(computeOutcome(pair, sig, g, s, capital).confidence * 100),
-    surv: Math.round(computeOutcome(pair, sig, g, s, capital).survival * 100),
+    surv: Math.round(computeOutcome(pair, sig, g, s, capital).survival  * 100),
   }))
+
+  if (!scenario || !outcome) return null
 
   return (
     <div className="space-y-5">
-      {/* Explainer */}
+
+      {/* Header */}
       <div className="rounded-3xl border border-blue-500/20 bg-blue-500/[0.04] p-5">
-        <div className="flex items-center gap-3 mb-2">
-          <FlaskConical className="h-5 w-5 text-blue-400" />
-          <p className="text-sm font-black text-white">What-If Scenario Engine</p>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-3">
+            <FlaskConical className="h-5 w-5 text-blue-400" />
+            <p className="text-sm font-black text-white">What-If Scenario Engine</p>
+            {generated && !loading && (
+              <span className="flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-[9px] font-black text-purple-400">
+                <Sparkles className="h-2.5 w-2.5" />AI GENERATED
+              </span>
+            )}
+            {!generated && !loading && (
+              <span className="rounded-full border border-slate-500/30 bg-slate-500/10 px-2.5 py-1 text-[9px] font-bold text-slate-500">
+                STATIC FALLBACK
+              </span>
+            )}
+          </div>
+          <button
+            onClick={refetch}
+            disabled={loading}
+            title="Regenerate scenarios with AI"
+            className="flex items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-[10px] font-bold text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 transition-all"
+          >
+            {loading
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCw className="h-3 w-3" />
+            }
+            {loading ? "Generating…" : "Regenerate"}
+          </button>
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
-          Select a macro shock to see how your {pair} trade performs. ARIA adjusts confidence, survival, and capital outcome based on how the scenario interacts with your signal.
-          {pd.lastUpdated && " Signal direction sourced from live AI prediction."}
+          {loading
+            ? `ARIA is analysing current ${pair} macro environment and generating tailored scenarios…`
+            : generated
+            ? `Scenarios generated by ARIA specifically for ${pair} ${sig} signal at ${conv}% conviction.${pd?.lastUpdated ? " Based on live prediction data." : ""}`
+            : `Select a macro shock to see how your ${pair} trade performs. Click Regenerate to get AI-tailored scenarios.`
+          }
         </p>
+        {error && !loading && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2">
+            <WifiOff className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+            <p className="text-[10px] text-rose-400">
+              AI generation failed — showing static fallbacks. {error.includes("500") ? "LLM API error." : error}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Scenario selector */}
-      <div className="space-y-2.5">
-        {SCENARIOS.map(s => {
-          const active = s.id === activeId
-          const o = computeOutcome(pair, sig, g, s, capital)
-          const bdr = s.shockType === "bullish" ? "border-emerald-500/35 bg-emerald-500/[0.04]" : "border-rose-500/35 bg-rose-500/[0.04]"
-          return (
-            <div key={s.id}
-              className={`rounded-3xl border transition-all overflow-hidden cursor-pointer ${active ? bdr : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"}`}
-              onClick={() => { setActiveId(s.id); setShowSteps(false) }}>
-              <div className="flex items-start gap-4 p-5">
-                <span className="text-3xl mt-0.5 shrink-0">{s.emoji}</span>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <p className="text-sm font-black text-white">{s.name}</p>
-                    <span className="text-[10px] text-slate-500">{s.probability}% prob.</span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">{s.description}</p>
-                  {active && (
-                    <div className="grid grid-cols-3 gap-2 mt-4">
-                      {[
-                        { l: "Confidence", v: `${Math.round(o.confidence * 100)}%`, col: o.confidence >= 0.7 ? "text-emerald-400" : o.confidence >= 0.5 ? "text-amber-400" : "text-rose-400" },
-                        { l: "Survival", v: `${Math.round(o.survival * 100)}%`, col: "text-blue-400" },
-                        { l: "Return", v: `${o.adjustedGrowth >= 0 ? "+" : ""}${o.adjustedGrowth.toFixed(1)}%`, col: o.adjustedGrowth >= 0 ? "text-emerald-400" : "text-rose-400" },
-                      ].map(m => (
-                        <div key={m.l} className="rounded-xl bg-black/30 p-2.5 text-center">
-                          <p className="text-[9px] text-slate-600 mb-0.5">{m.l}</p>
-                          <p className={`text-sm font-black ${m.col}`}>{m.v}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+      {/* Loading skeleton */}
+      {loading && (
+        <div className="space-y-2.5">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="rounded-3xl border border-white/[0.07] bg-white/[0.02] p-5 animate-pulse">
+              <div className="flex items-start gap-4">
+                <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-40 rounded bg-white/[0.06]" />
+                  <div className="h-3 w-full rounded bg-white/[0.04]" />
+                  <div className="h-3 w-3/4 rounded bg-white/[0.04]" />
                 </div>
               </div>
             </div>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* Scenario cards */}
+      {!loading && (
+        <div className="space-y-2.5">
+          {scenarios.map(s => {
+            const active = s.id === activeId
+            const o      = computeOutcome(pair, sig, g, s, capital)
+            const bdr    = s.shockType === "bullish"
+              ? "border-emerald-500/35 bg-emerald-500/[0.04]"
+              : s.shockType === "bearish"
+              ? "border-rose-500/35 bg-rose-500/[0.04]"
+              : "border-amber-500/35 bg-amber-500/[0.04]"
+            return (
+              <div
+                key={s.id}
+                className={`rounded-3xl border transition-all overflow-hidden cursor-pointer ${
+                  active ? bdr : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"
+                }`}
+                onClick={() => { setActiveId(s.id); setShowSteps(false) }}
+              >
+                <div className="flex items-start gap-4 p-5">
+                  <span className="text-3xl mt-0.5 shrink-0">{s.emoji}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <p className="text-sm font-black text-white">{s.name}</p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${
+                          s.shockType === "bullish" ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
+                          : s.shockType === "bearish" ? "border-rose-500/30 text-rose-400 bg-rose-500/10"
+                          : "border-amber-500/30 text-amber-400 bg-amber-500/10"
+                        }`}>
+                          {s.shockType.toUpperCase()}
+                        </span>
+                        <span className="text-[10px] text-slate-500">{s.probability}% prob.</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-400 leading-relaxed">{s.description}</p>
+                    {active && (
+                      <>
+                        <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                          <span className="text-slate-400 font-semibold">Trigger: </span>
+                          {s.triggerEvent}
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mt-4">
+                          {[
+                            { l: "Confidence", v: `${Math.round(o.confidence * 100)}%`, col: o.confidence >= 0.7 ? "text-emerald-400" : o.confidence >= 0.5 ? "text-amber-400" : "text-rose-400" },
+                            { l: "Survival",   v: `${Math.round(o.survival * 100)}%`,   col: "text-blue-400" },
+                            { l: "Return",     v: `${o.adjustedGrowth >= 0 ? "+" : ""}${o.adjustedGrowth.toFixed(1)}%`, col: o.adjustedGrowth >= 0 ? "text-emerald-400" : "text-rose-400" },
+                          ].map(m => (
+                            <div key={m.l} className="rounded-xl bg-black/30 p-2.5 text-center">
+                              <p className="text-[9px] text-slate-600 mb-0.5">{m.l}</p>
+                              <p className={`text-sm font-black ${m.col}`}>{m.v}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* Detailed outcome */}
-      <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
-        <div className="p-5 space-y-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Outcome — {scenario.name}</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-white/[0.06] bg-black/20 p-4">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600 mb-2">Macro Impact</p>
-              <p className="text-xs text-slate-400 leading-relaxed">{scenario.macroContext}</p>
-            </div>
-            <div className="rounded-2xl border border-white/[0.06] bg-black/20 p-4">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600 mb-2">Trigger Event</p>
-              <p className="text-xs text-slate-400 leading-relaxed">{scenario.triggerEvent}</p>
-            </div>
-          </div>
+      {!loading && (
+        <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
+          <div className="p-5 space-y-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+              Outcome — {scenario.name}
+            </p>
 
-          <div className="space-y-3 rounded-2xl border border-white/[0.06] bg-black/20 p-4">
-            {[
-              { label: "Trade Confidence", note: "≥70% = Proceed", value: Math.round(outcome.confidence * 100), color: outcome.confidence >= 0.7 ? "bg-emerald-500" : outcome.confidence >= 0.5 ? "bg-amber-500" : "bg-rose-500" },
-              { label: "Profitable Path Survival", note: "≥60% = Proceed", value: Math.round(outcome.survival * 100), color: "bg-blue-500" },
-            ].map(bar => (
-              <div key={bar.label}>
-                <div className="flex justify-between mb-1.5">
-                  <span className="text-xs text-slate-400">{bar.label}</span>
-                  <span className="text-[10px] text-slate-600">{bar.note}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-2 rounded-full bg-white/[0.06] overflow-hidden">
-                    <div className={`h-full ${bar.color} rounded-full`} style={{ width: `${bar.value}%` }} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/[0.06] bg-black/20 p-4">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600 mb-2">Macro Impact</p>
+                <p className="text-xs text-slate-400 leading-relaxed">{scenario.macroContext}</p>
+              </div>
+              <div className="rounded-2xl border border-white/[0.06] bg-black/20 p-4">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600 mb-2">Trigger Event</p>
+                <p className="text-xs text-slate-400 leading-relaxed">{scenario.triggerEvent}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-white/[0.06] bg-black/20 p-4">
+              {[
+                { label: "Trade Confidence",        note: "≥70% = Proceed", value: Math.round(outcome.confidence * 100), color: outcome.confidence >= 0.7 ? "bg-emerald-500" : outcome.confidence >= 0.5 ? "bg-amber-500" : "bg-rose-500" },
+                { label: "Profitable Path Survival", note: "≥60% = Proceed", value: Math.round(outcome.survival  * 100), color: "bg-blue-500" },
+              ].map(bar => (
+                <div key={bar.label}>
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-xs text-slate-400">{bar.label}</span>
+                    <span className="text-[10px] text-slate-600">{bar.note}</span>
                   </div>
-                  <span className="text-xs font-black text-white w-9 text-right">{bar.value}%</span>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-2 rounded-full bg-white/[0.06] overflow-hidden">
+                      <div className={`h-full ${bar.color} rounded-full`} style={{ width: `${bar.value}%` }} />
+                    </div>
+                    <span className="text-xs font-black text-white w-9 text-right">{bar.value}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-px bg-white/[0.04] rounded-2xl overflow-hidden">
+              {[
+                { l: "Current",        v: `$${fmt(capital)}`,                                                      col: "text-white" },
+                { l: "Under Scenario", v: `$${fmt(outcome.capitalOutcome, 0)}`,                                     col: outcome.gainLoss >= 0 ? "text-emerald-400" : "text-rose-400" },
+                { l: "Net Change",     v: `${outcome.gainLoss >= 0 ? "+" : "−"}$${fmt(Math.abs(outcome.gainLoss), 0)}`, col: outcome.gainLoss >= 0 ? "text-emerald-400" : "text-rose-400" },
+              ].map(s => (
+                <div key={s.l} className="bg-[#0b1526] p-4 text-center">
+                  <p className="text-[9px] uppercase tracking-widest text-slate-600 mb-1">{s.l}</p>
+                  <p className={`text-base font-black ${s.col}`}>{s.v}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl border border-white/[0.06] bg-black/20 p-4">
+              <div>
+                <p className="text-[9px] text-slate-600 mb-2">ARIA Recommendation</p>
+                <DecisionBadge d={outcome.decision} />
+              </div>
+              <button
+                onClick={() => setShowSteps(v => !v)}
+                className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-xs text-slate-500 hover:text-blue-400 transition-all"
+              >
+                <Info className="h-3.5 w-3.5" />Decision logic
+                <ChevronRight className={`h-3 w-3 transition-transform ${showSteps ? "rotate-90" : ""}`} />
+              </button>
+            </div>
+
+            {showSteps && (
+              <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-blue-400/60 mb-4">
+                  Step-by-Step Decision Logic
+                </p>
+                <div className="space-y-3">
+                  {[
+                    `Scenario hits ${pair} with ${((scenario.pairEffects[pair]?.magnitude ?? 0) * scenario.shockMagnitude * 100).toFixed(0)}% effective shock intensity.`,
+                    `Your ${sig} signal is ${outcome.adjustedGrowth >= g ? "REINFORCED by" : "OPPOSED by"} this scenario direction.`,
+                    `Adjusted return: base ${g}% → ${outcome.adjustedGrowth >= 0 ? "+" : ""}${outcome.adjustedGrowth.toFixed(2)}%.`,
+                    `Confidence ${Math.round(outcome.confidence * 100)}% vs 70% threshold → ${Math.round(outcome.confidence * 100) >= 70 ? "✓ PASS" : "✗ FAIL"}.`,
+                    `Survival ${Math.round(outcome.survival * 100)}% vs 60% threshold → ${Math.round(outcome.survival * 100) >= 60 ? "✓ PASS" : "✗ FAIL"}.`,
+                    `Final decision: ${outcome.decision}.`,
+                  ].map((step, i) => (
+                    <div key={i} className="flex items-start gap-3">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-[9px] font-black text-blue-400">
+                        {i + 1}
+                      </span>
+                      <p className="text-xs text-slate-400 leading-relaxed">{step}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
           </div>
-
-          <div className="grid grid-cols-3 gap-px bg-white/[0.04] rounded-2xl overflow-hidden">
-            {[
-              { l: "Current", v: `$${fmt(capital)}`, col: "text-white" },
-              { l: "Under Scenario", v: `$${fmt(outcome.capitalOutcome, 0)}`, col: outcome.gainLoss >= 0 ? "text-emerald-400" : "text-rose-400" },
-              { l: "Net Change", v: `${outcome.gainLoss >= 0 ? "+" : "-"}$${fmt(Math.abs(outcome.gainLoss), 0)}`, col: outcome.gainLoss >= 0 ? "text-emerald-400" : "text-rose-400" },
-            ].map(s => (
-              <div key={s.l} className="bg-[#0b1526] p-4 text-center">
-                <p className="text-[9px] uppercase tracking-widest text-slate-600 mb-1">{s.l}</p>
-                <p className={`text-base font-black ${s.col}`}>{s.v}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between rounded-2xl border border-white/[0.06] bg-black/20 p-4">
-            <div>
-              <p className="text-[9px] text-slate-600 mb-2">ARIA Recommendation</p>
-              <DecisionBadge d={outcome.decision} />
-            </div>
-            <button onClick={() => setShowSteps(v => !v)} className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-xs text-slate-500 hover:text-blue-400 transition-all">
-              <Info className="h-3.5 w-3.5" />Decision logic
-              <ChevronRight className={`h-3 w-3 transition-transform ${showSteps ? "rotate-90" : ""}`} />
-            </button>
-          </div>
-
-          {showSteps && (
-            <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-blue-400/60 mb-4">Step-by-Step Decision Logic</p>
-              <div className="space-y-3">
-                {[
-                  `Scenario hits ${pair} with ${((scenario.pairEffects[pair as Pair]?.magnitude ?? 0) * scenario.shockMagnitude * 100).toFixed(0)}% effective shock intensity.`,
-                  `Your ${sig} signal is ${outcome.adjustedGrowth >= g ? "REINFORCED by" : "OPPOSED by"} this scenario direction.`,
-                  `Adjusted return: base ${g}% → ${outcome.adjustedGrowth >= 0 ? "+" : ""}${outcome.adjustedGrowth.toFixed(2)}%.`,
-                  `Confidence ${Math.round(outcome.confidence * 100)}% vs 70% threshold → ${Math.round(outcome.confidence * 100) >= 70 ? "✓ PASS" : "✗ FAIL"}.`,
-                  `Survival ${Math.round(outcome.survival * 100)}% vs 60% threshold → ${Math.round(outcome.survival * 100) >= 60 ? "✓ PASS" : "✗ FAIL"}.`,
-                  `Final decision: ${outcome.decision}.`,
-                ].map((s, i) => (
-                  <div key={i} className="flex items-start gap-3">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-[9px] font-black text-blue-400">{i + 1}</span>
-                    <p className="text-xs text-slate-400 leading-relaxed">{s}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Comparison chart */}
-      <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] p-5">
-        <p className="text-xs font-black text-white mb-1">Confidence vs Survival — All Scenarios</p>
-        <p className="text-[10px] text-slate-600 mb-4">Dashed lines = minimum thresholds to PROCEED</p>
-        <ResponsiveContainer width="100%" height={140}>
-          <BarChart data={allOut} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff04" />
-            <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }} />
-            <YAxis tick={{ fill: "#475569", fontSize: 8 }} tickFormatter={v => `${v}%`} domain={[0, 100]} />
-            <Tooltip contentStyle={{ background: "#0b1526", border: "1px solid #ffffff12", borderRadius: 12, fontSize: 11 }} />
-            <ReferenceLine y={70} stroke="#10b981" strokeDasharray="4 4" />
-            <ReferenceLine y={60} stroke="#3b82f6" strokeDasharray="4 4" />
-            <Bar dataKey="conf" name="Confidence" fill="#10b981" opacity={0.75} radius={[3, 3, 0, 0]} />
-            <Bar dataKey="surv" name="Survival"   fill="#3b82f6" opacity={0.75} radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {!loading && (
+        <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] p-5">
+          <p className="text-xs font-black text-white mb-1">Confidence vs Survival — All Scenarios</p>
+          <p className="text-[10px] text-slate-600 mb-4">Dashed lines = minimum thresholds to PROCEED</p>
+          <ResponsiveContainer width="100%" height={140}>
+            <BarChart data={allOut} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff04" />
+              <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }} />
+              <YAxis tick={{ fill: "#475569", fontSize: 8 }} tickFormatter={v => `${v}%`} domain={[0, 100]} />
+              <Tooltip contentStyle={{ background: "#0b1526", border: "1px solid #ffffff12", borderRadius: 12, fontSize: 11 }} />
+              <ReferenceLine y={70} stroke="#10b981" strokeDasharray="4 4" />
+              <ReferenceLine y={60} stroke="#3b82f6" strokeDasharray="4 4" />
+              <Bar dataKey="conf" name="Confidence" fill="#10b981" opacity={0.75} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="surv" name="Survival"   fill="#3b82f6" opacity={0.75} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   )
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TAB CONTENT — MACRO
+// TAB — MACRO
 // ════════════════════════════════════════════════════════════════════════════
 function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, LivePairData> }) {
   const pd  = liveData[pair]
@@ -1435,15 +1582,14 @@ function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, Liv
   const [base, quote] = pair.split("/")
   const events = [
     { name: `${base === "EUR" ? "ECB" : base === "GBP" ? "Bank of England" : base === "USD" ? "Federal Reserve" : "Bank of Japan"} Rate Decision`, impact: "HIGH" as const, timing: "Next week", currency: base },
-    { name: `${base} GDP Release`, impact: "HIGH" as const, timing: "2 weeks", currency: base },
-    { name: `${quote === "USD" ? "US CPI Inflation" : quote + " Inflation Data"}`, impact: "HIGH" as const, timing: "3 days", currency: quote },
-    { name: `${quote} Labour Market Report`, impact: "MEDIUM" as const, timing: "4 days", currency: quote },
-    { name: `${base} Purchasing Managers Index`, impact: "MEDIUM" as const, timing: "5 days", currency: base },
+    { name: `${base} GDP Release`,                                                                                                                    impact: "HIGH"   as const, timing: "2 weeks", currency: base },
+    { name: `${quote === "USD" ? "US CPI Inflation" : quote + " Inflation Data"}`,                                                                    impact: "HIGH"   as const, timing: "3 days",  currency: quote },
+    { name: `${quote} Labour Market Report`,                                                                                                           impact: "MEDIUM" as const, timing: "4 days",  currency: quote },
+    { name: `${base} Purchasing Managers Index`,                                                                                                       impact: "MEDIUM" as const, timing: "5 days",  currency: base },
   ]
 
   return (
     <div className="space-y-5">
-      {/* Rate differential */}
       <div className="rounded-3xl border p-6" style={{ borderColor: `${c.hex}28`, background: "linear-gradient(135deg,#0b1526,#070d1c)", boxShadow: c.glow }}>
         <div className="flex items-center gap-2 mb-5">
           <Globe className="h-4 w-4 text-slate-400" />
@@ -1469,12 +1615,15 @@ function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, Liv
         <div className={`rounded-2xl border p-4 ${c.bg} ${c.border}`}>
           <p className={`text-[9px] font-black uppercase tracking-widest mb-2 ${c.text}`}>How This Drives {sig} on {pair}</p>
           <p className="text-xs text-slate-300 leading-relaxed">
-            {sig === "BUY" ? `${base} has improving yield prospects relative to ${quote}. Capital flows naturally favour ${base}-denominated assets.` : sig === "SELL" ? `${quote} holds a yield advantage. Investors prefer ${quote}-denominated assets, pressuring ${pair} lower.` : `Rate differential is roughly balanced — no clear yield advantage. Watch for a decisive policy shift.`}
+            {sig === "BUY"
+              ? `${base} has improving yield prospects relative to ${quote}. Capital flows naturally favour ${base}-denominated assets.`
+              : sig === "SELL"
+              ? `${quote} holds a yield advantage. Investors prefer ${quote}-denominated assets, pressuring ${pair} lower.`
+              : `Rate differential is roughly balanced — no clear yield advantage. Watch for a decisive policy shift.`}
           </p>
         </div>
       </div>
 
-      {/* Data table */}
       <div className="rounded-3xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
         <div className="grid grid-cols-[1fr_auto_1fr] border-b border-white/[0.07] bg-black/20">
           <div className="px-5 py-3 text-center"><p className="text-sm font-black text-white">{FLAGS[base]} {base}</p></div>
@@ -1482,9 +1631,9 @@ function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, Liv
           <div className="px-5 py-3 text-center"><p className="text-sm font-black text-white">{FLAGS[quote]} {quote}</p></div>
         </div>
         {[
-          { metric: "Interest Rate", base: r.macro.rate_base, quote: r.macro.rate_quote },
-          { metric: "GDP Growth", base: r.macro.gdp_base, quote: r.macro.gdp_quote },
-          { metric: "Inflation", base: r.macro.inflation_base, quote: r.macro.inflation_quote },
+          { metric: "Interest Rate", base: r.macro.rate_base,      quote: r.macro.rate_quote },
+          { metric: "GDP Growth",    base: r.macro.gdp_base,        quote: r.macro.gdp_quote },
+          { metric: "Inflation",     base: r.macro.inflation_base,  quote: r.macro.inflation_quote },
         ].map((row, i) => (
           <div key={i} className="grid grid-cols-[1fr_auto_1fr] border-b border-white/[0.04] last:border-0">
             <div className="px-5 py-4 text-center"><p className="text-sm font-black text-white">{row.base}</p></div>
@@ -1494,7 +1643,6 @@ function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, Liv
         ))}
       </div>
 
-      {/* Calendar */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Clock className="h-4 w-4 text-slate-400" />
@@ -1508,7 +1656,11 @@ function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, Liv
                 <p className="text-sm font-bold text-white">{ev.name}</p>
                 <p className="text-[10px] text-slate-500 mt-0.5">~{ev.timing}</p>
               </div>
-              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black ${ev.impact === "HIGH" ? "border-rose-500/30 bg-rose-500/10 text-rose-400" : "border-amber-500/30 bg-amber-500/10 text-amber-400"}`}>{ev.impact}</span>
+              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black ${
+                ev.impact === "HIGH"
+                  ? "border-rose-500/30 bg-rose-500/10 text-rose-400"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+              }`}>{ev.impact}</span>
             </div>
           ))}
         </div>
@@ -1518,7 +1670,7 @@ function MacroTab({ pair, liveData }: { pair: Pair; liveData: Record<string, Liv
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// HELP PANEL (slide-over)
+// HELP PANEL
 // ════════════════════════════════════════════════════════════════════════════
 function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
@@ -1542,11 +1694,11 @@ function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
           </p>
           <div className="space-y-3">
             {[
-              { icon: LayoutDashboard, title: "Overview", desc: "Signal, live price, conviction score, capital projection, entry/TP/SL levels, and pair comparison chart." },
-              { icon: Activity,        title: "Technical", desc: "Price action chart with TP/SL plotted, key support/resistance levels, indicators, and a 5-dimension signal radar." },
-              { icon: Brain,           title: "Reasoning", desc: "Every factor that drove the AI decision with contribution strength. Tap any card to read full detail. Live agent consensus shown when data is available." },
-              { icon: FlaskConical,    title: "Scenarios", desc: "3 macro scenarios (Fed Hawkish, Risk-Off, Soft Landing). See how your trade survives each one with the full decision chain." },
-              { icon: Globe,           title: "Macro",     desc: "Interest rate differential, economic data comparison, and upcoming events that can move the pair." },
+              { icon: LayoutDashboard, title: "Overview",   desc: "Signal, live price, conviction score, capital projection, entry/TP/SL levels, and pair comparison chart." },
+              { icon: Activity,        title: "Technical",  desc: "Price action chart with TP/SL plotted, key support/resistance levels, indicators, and a 5-dimension signal radar." },
+              { icon: Brain,           title: "Reasoning",  desc: "Every factor that drove the AI decision with contribution strength. Tap any card to read full detail. Live agent consensus shown when data is available." },
+              { icon: FlaskConical,    title: "Scenarios",  desc: "AI-generated macro scenarios tailored to your pair and signal. ARIA calls the LLM to produce fresh scenarios on demand. Falls back to static defaults if unavailable." },
+              { icon: Globe,           title: "Macro",      desc: "Interest rate differential, economic data comparison, and upcoming events that can move the pair." },
             ].map(item => (
               <div key={item.title} className="flex items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20">
@@ -1587,9 +1739,9 @@ type Tab = typeof TABS[number]["id"]
 // DEMO PORTFOLIOS
 // ════════════════════════════════════════════════════════════════════════════
 const DEMO_PORTFOLIOS: IPortfolio[] = [
-  { name: "Major Pairs — Swing", currencyPairs: [...PAIRS], initialCapital: 30000, currency: "USD", riskLevel: "medium", tradingStyle: "swing" },
-  { name: "Conservative — EUR Focus", currencyPairs: ["EUR/USD", "EUR/GBP", "USD/CHF"], initialCapital: 15000, currency: "USD", riskLevel: "low", tradingStyle: "long-term" },
-  { name: "Aggressive — High Beta", currencyPairs: ["GBP/JPY", "USD/JPY", "GBP/USD"], initialCapital: 10000, currency: "USD", riskLevel: "high", tradingStyle: "day-trading" },
+  { name: "Major Pairs — Swing",       currencyPairs: [...PAIRS],                                   initialCapital: 30000, currency: "USD", riskLevel: "medium", tradingStyle: "swing" },
+  { name: "Conservative — EUR Focus",  currencyPairs: ["EUR/USD", "EUR/GBP", "USD/CHF"],            initialCapital: 15000, currency: "USD", riskLevel: "low",    tradingStyle: "long-term" },
+  { name: "Aggressive — High Beta",    currencyPairs: ["GBP/JPY", "USD/JPY", "GBP/USD"],            initialCapital: 10000, currency: "USD", riskLevel: "high",   tradingStyle: "day-trading" },
 ]
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1603,19 +1755,17 @@ export default function RecommendationsPage() {
 
   const [portfolioIdx, setPortfolioIdx] = useState(0)
   const [pair, setPair]                 = useState<Pair>(PAIRS[0])
-  const [tab, setTab]                   = useState<Tab>("overview")
+  const [tab,  setTab]                  = useState<Tab>("overview")
   const [showHelp, setShowHelp]         = useState(false)
 
   const portfolio      = portfolios[portfolioIdx]
   const portfolioPairs = portfolio.currencyPairs.filter(p => PAIRS.includes(p as Pair)) as Pair[]
   const perPair        = portfolio.initialCapital / Math.max(portfolioPairs.length, 1)
 
-  // ── Live data ──────────────────────────────────────────────────────────────
   const { data: liveData, refetch, refetchAll } = useLiveData(portfolioPairs)
 
-  // Derived aggregates using live data
   const totalProjected = portfolioPairs.reduce(
-    (s, p) => s + perPair * (1 + (liveData[p]?.growth ?? GROWTH_STATIC[p]) / 100), 0
+    (s, p) => s + perPair * (1 + (liveData[p]?.growth ?? GROWTH_STATIC[p]) / 100), 0,
   )
   const netPnL  = totalProjected - portfolio.initialCapital
   const avgConv = portfolioPairs.length > 0
@@ -1623,7 +1773,6 @@ export default function RecommendationsPage() {
     : 0
   const c = sc(liveData[pair]?.signal ?? SIGNAL_STATIC[pair])
 
-  // When portfolio changes, ensure selected pair belongs to the new portfolio
   useEffect(() => {
     if (!portfolioPairs.includes(pair) && portfolioPairs.length > 0) {
       setPair(portfolioPairs[0])
@@ -1633,7 +1782,7 @@ export default function RecommendationsPage() {
 
   const handlePortfolioSelect = useCallback((i: number) => {
     setPortfolioIdx(i)
-    const p   = portfolios[i]
+    const p     = portfolios[i]
     const first = p.currencyPairs.find(x => PAIRS.includes(x as Pair)) as Pair | undefined
     if (first) { setPair(first); setTab("overview") }
   }, [portfolios])
@@ -1643,20 +1792,21 @@ export default function RecommendationsPage() {
     setTab("overview")
   }, [])
 
-  // Any pair currently loading?
   const anyLoading = portfolioPairs.some(p => liveData[p]?.loading)
 
   return (
     <div className="min-h-screen bg-[#040c18]" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-      {/* ambient glow */}
+      {/* Ambient glow */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[350px] rounded-full blur-3xl transition-all duration-1000"
-          style={{ background: `radial-gradient(circle,${c.hex}12,transparent 70%)` }} />
+        <div
+          className="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[350px] rounded-full blur-3xl transition-all duration-1000"
+          style={{ background: `radial-gradient(circle,${c.hex}12,transparent 70%)` }}
+        />
       </div>
 
       <div className="relative z-10 max-w-4xl mx-auto px-4 pt-6 pb-28 space-y-7">
 
-        {/* ── PAGE HEADER ─────────────────────────────────────── */}
+        {/* Page header */}
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1.5">
@@ -1669,7 +1819,6 @@ export default function RecommendationsPage() {
             <p className="text-xs text-slate-500 mt-1">EUR · USD · JPY · CHF · GBP — 6 major pairs</p>
           </div>
           <div className="flex items-center gap-2.5 mt-1">
-            {/* Global live indicator */}
             <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-1.5">
               {anyLoading
                 ? <RefreshCw className="h-2.5 w-2.5 text-blue-400 animate-spin" />
@@ -1679,7 +1828,6 @@ export default function RecommendationsPage() {
                 {anyLoading ? "FETCHING" : "LIVE"}
               </span>
             </div>
-            {/* Refresh all button */}
             <button
               onClick={refetchAll}
               disabled={anyLoading}
@@ -1688,14 +1836,16 @@ export default function RecommendationsPage() {
             >
               <RefreshCw className={`h-4 w-4 text-slate-400 ${anyLoading ? "animate-spin" : ""}`} />
             </button>
-            <button onClick={() => setShowHelp(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] hover:border-white/[0.18] transition-colors">
+            <button
+              onClick={() => setShowHelp(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] hover:border-white/[0.18] transition-colors"
+            >
               <HelpCircle className="h-4 w-4 text-slate-400" />
             </button>
           </div>
         </div>
 
-        {/* ── DEMO BANNER ─────────────────────────────────────── */}
+        {/* Demo banner */}
         {isDemo && (
           <div className="flex items-center gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
@@ -1706,21 +1856,21 @@ export default function RecommendationsPage() {
           </div>
         )}
 
-        {/* ── PORTFOLIO SWITCHER ────────────────────────────── */}
+        {/* Portfolio switcher */}
         <section>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3">Your Portfolios</p>
           <PortfolioCards portfolios={portfolios} active={portfolioIdx} onSelect={handlePortfolioSelect} liveData={liveData} />
         </section>
 
-        {/* ── PORTFOLIO STATS BAR ─────────────────────────────── */}
+        {/* Portfolio stats bar */}
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
           {[
-            { label: "Balance",    value: `$${fmt(portfolio.initialCapital)}`,                                   color: "text-white" },
-            { label: "Projected",  value: `$${fmt(totalProjected, 0)}`,                                          color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
-            { label: "Net P&L",    value: `${netPnL >= 0 ? "+" : "−"}$${fmt(Math.abs(netPnL), 0)}`,             color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
-            { label: "Pairs",      value: String(portfolioPairs.length),                                         color: "text-white" },
-            { label: "Risk Level", value: portfolio.riskLevel.toUpperCase(),                                     color: { low: "text-emerald-400", medium: "text-amber-400", high: "text-rose-400" }[portfolio.riskLevel] ?? "text-white" },
-            { label: "Avg Conv.",  value: portfolioPairs.length > 0 ? `${avgConv}%` : "—",                      color: "text-blue-400" },
+            { label: "Balance",    value: `$${fmt(portfolio.initialCapital)}`,                                                           color: "text-white" },
+            { label: "Projected",  value: `$${fmt(totalProjected, 0)}`,                                                                  color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
+            { label: "Net P&L",    value: `${netPnL >= 0 ? "+" : "−"}$${fmt(Math.abs(netPnL), 0)}`,                                     color: netPnL >= 0 ? "text-emerald-400" : "text-rose-400" },
+            { label: "Pairs",      value: String(portfolioPairs.length),                                                                  color: "text-white" },
+            { label: "Risk Level", value: portfolio.riskLevel.toUpperCase(),                                                              color: { low: "text-emerald-400", medium: "text-amber-400", high: "text-rose-400" }[portfolio.riskLevel] ?? "text-white" },
+            { label: "Avg Conv.",  value: portfolioPairs.length > 0 ? `${avgConv}%` : "—",                                               color: "text-blue-400" },
           ].map(s => (
             <div key={s.label} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
               <p className="text-[9px] uppercase tracking-wider text-slate-600 mb-1">{s.label}</p>
@@ -1729,7 +1879,7 @@ export default function RecommendationsPage() {
           ))}
         </div>
 
-        {/* ── SELECT A PAIR ─────────────────────────────────── */}
+        {/* Pair selector */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Your Pairs</p>
@@ -1738,7 +1888,7 @@ export default function RecommendationsPage() {
           <PairSelector pairs={portfolioPairs} active={pair} onChange={handlePairChange} perPair={perPair} liveData={liveData} onRefetch={refetch} />
         </section>
 
-        {/* ── ACTIVE PAIR HEADER ───────────────────────────── */}
+        {/* Active pair header + tabs */}
         <div className="rounded-3xl border border-white/[0.08] bg-[#060e1d]/80 backdrop-blur-sm overflow-hidden">
           <div className={`h-0.5 ${c.bar}`} />
           <div className="flex items-center justify-between px-5 py-4">
@@ -1761,7 +1911,6 @@ export default function RecommendationsPage() {
                 </div>
               </div>
             </div>
-            {/* Prev / Next */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { const i = portfolioPairs.indexOf(pair); if (i > 0) { setPair(portfolioPairs[i - 1]); setTab("overview") } }}
@@ -1789,7 +1938,9 @@ export default function RecommendationsPage() {
               const active = t.id === tab
               return (
                 <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-2 shrink-0 px-4 py-3 text-[11px] font-black uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${active ? "border-blue-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}>
+                  className={`flex items-center gap-2 shrink-0 px-4 py-3 text-[11px] font-black uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
+                    active ? "border-blue-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"
+                  }`}>
                   <t.icon className={`h-3.5 w-3.5 ${active ? "text-blue-400" : ""}`} />
                   {t.label}
                 </button>
@@ -1798,7 +1949,7 @@ export default function RecommendationsPage() {
           </div>
         </div>
 
-        {/* ── TAB CONTENT ─────────────────────────────────────── */}
+        {/* Tab content */}
         <div key={`${pair}-${tab}`}>
           {tab === "overview"  && <OverviewTab  pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} onRefetch={refetch} />}
           {tab === "technical" && <TechnicalTab pair={pair} liveData={liveData} />}

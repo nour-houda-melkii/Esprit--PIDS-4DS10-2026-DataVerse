@@ -5,39 +5,39 @@
 
 /* FX-AlphaLab - Fintech Marketing Website Theme */
 :root {
-  --background: #0f172a;
-  --foreground: #f8fafc;
-  --card: #1e293b;
-  --card-foreground: #f8fafc;
-  --popover: #1e293b;
-  --popover-foreground: #f8fafc;
-  --primary: #06b6d4;
-  --primary-foreground: #0f172a;
-  --secondary: #8b5cf6;
-  --secondary-foreground: #ffffff;
-  --muted: #334155;
-  --muted-foreground: #94a3b8;
-  --accent: #0d9488;
+  --background: #141104;
+  --foreground: #F9EDCC;
+  --card: #1C1806;
+  --card-foreground: #F9EDCC;
+  --popover: #1C1806;
+  --popover-foreground: #F9EDCC;
+  --primary: #D4A017;
+  --primary-foreground: #0F0D02;
+  --secondary: #A87209;
+  --secondary-foreground: #F9EDCC;
+  --muted: #251F08;
+  --muted-foreground: #8A6A20;
+  --accent: #22A05A;
   --accent-foreground: #ffffff;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #334155;
-  --input: #334155;
-  --ring: #06b6d4;
-  --chart-1: #06b6d4;
-  --chart-2: #8b5cf6;
-  --chart-3: #0d9488;
-  --chart-4: #f59e0b;
+  --border: rgba(212, 160, 23, 0.2);
+  --input: #1C1806;
+  --ring: #D4A017;
+  --chart-1: #D4A017;
+  --chart-2: #A87209;
+  --chart-3: #22A05A;
+  --chart-4: #F9EDCC;
   --chart-5: #ef4444;
   --radius: 0.75rem;
-  --sidebar: #0f172a;
-  --sidebar-foreground: #f8fafc;
-  --sidebar-primary: #06b6d4;
-  --sidebar-primary-foreground: #0f172a;
-  --sidebar-accent: #1e293b;
-  --sidebar-accent-foreground: #f8fafc;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #06b6d4;
+  --sidebar: #0F0D02;
+  --sidebar-foreground: #F9EDCC;
+  --sidebar-primary: #D4A017;
+  --sidebar-primary-foreground: #0F0D02;
+  --sidebar-accent: #1C1806;
+  --sidebar-accent-foreground: #F9EDCC;
+  --sidebar-border: rgba(212, 160, 23, 0.15);
+  --sidebar-ring: #D4A017;
 }
 
 @theme inline {
@@ -88,4 +88,56 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+/* ── Trading animated background ── */
+@keyframes floatUp {
+  0%   { transform: translateY(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.8; }
+  100% { transform: translateY(-100vh); opacity: 0; }
+}
+@keyframes candleGrow {
+  0%   { transform: scaleY(0); opacity: 0; }
+  30%  { opacity: 1; }
+  70%  { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(0); opacity: 0; }
+}
+@keyframes signalPulse {
+  0%   { transform: scale(0.5); opacity: 0; }
+  40%  { transform: scale(1.2); opacity: 1; }
+  70%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.5); opacity: 0; }
+}
+@keyframes priceLine {
+  0%   { width: 0%; opacity: 0; }
+  20%  { opacity: 0.6; }
+  80%  { opacity: 0.6; }
+  100% { width: 100%; opacity: 0; }
+}
+@keyframes tickerScroll {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+@keyframes orbPulse {
+  0%, 100% { opacity: 0.12; transform: scale(1); }
+  50%       { opacity: 0.25; transform: scale(1.1); }
+}
+@keyframes floatDiag {
+  0%   { transform: translate(0, 0) scale(0.8); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.8; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1.1); opacity: 0; }
+}
+@keyframes driftX {
+  0%   { transform: translateX(-10px); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 0.9; }
+  100% { transform: translateX(calc(100vw + 50px)); opacity: 0; }
+}
+@keyframes floatRandom {
+  0%   { transform: translate(0px, 0px) rotate(0deg); opacity: 0; }
+  10%  { opacity: 1; }
+  50%  { transform: translate(var(--mx), var(--my)) rotate(180deg); opacity: 0.9; }
+  90%  { opacity: 0.6; }
+  100% { transform: translate(var(--ex), var(--ey)) rotate(360deg); opacity: 0; }
 }

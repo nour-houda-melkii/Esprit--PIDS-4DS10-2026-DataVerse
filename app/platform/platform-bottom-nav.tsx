@@ -7,7 +7,7 @@ import { Newspaper, Sparkles, History } from "lucide-react"
 const NAV_ITEMS = [
   { href: "/platform/overview",        label: "Feed",            icon: Newspaper, live: true  },
   { href: "/platform/recommendations", label: "Recommendations", icon: Sparkles,  live: true },
-  { href: "/platform/history",         label: "History",         icon: History,   live: false },
+  { href: "/platform/history",         label: "History",         icon: History,   live:  true },
 ]
 
 export function PlatformBottomNav() {
@@ -45,7 +45,7 @@ export function PlatformBottomNav() {
               <span>{label}</span>
 
               {/* Coming soon badge */}
-              {!live && (
+              {active && (
                 <span className="absolute -right-1 -top-1 rounded-full bg-[#334155] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-muted-foreground/70">
                   Soon
                 </span>
