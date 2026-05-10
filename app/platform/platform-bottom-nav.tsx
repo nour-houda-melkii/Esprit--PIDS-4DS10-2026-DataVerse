@@ -44,12 +44,7 @@ export function PlatformBottomNav() {
               <Icon className={`h-5 w-5 transition-transform duration-200 ${active ? "scale-110" : ""}`} />
               <span>{label}</span>
 
-              {/* Coming soon badge */}
-              {active && (
-                <span className="absolute -right-1 -top-1 rounded-full bg-[#334155] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                  Soon
-                </span>
-              )}
+             
             </Link>
           )
         })}
