@@ -2,11 +2,12 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Newspaper, Sparkles, History } from "lucide-react"
+import { Newspaper, Sparkles, History, ChartArea } from "lucide-react"
 
 const NAV_ITEMS = [
   { href: "/platform/overview",        label: "Feed",            icon: Newspaper, live: true  },
   { href: "/platform/recommendations", label: "Recommendations", icon: Sparkles,  live: true },
+  { href: "/platform/simulation",      label: "Real Time Simulation",      icon: ChartArea,   live:  false },
   { href: "/platform/history",         label: "History",         icon: History,   live:  true },
 ]
 
@@ -44,7 +45,12 @@ export function PlatformBottomNav() {
               <Icon className={`h-5 w-5 transition-transform duration-200 ${active ? "scale-110" : ""}`} />
               <span>{label}</span>
 
-             
+              {/* Coming soon badge */}
+              {!live && (
+                <span className="absolute -right-1 -top-1 rounded-full bg-[#334155] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                  Soon
+                </span>
+              )}
             </Link>
           )
         })}
