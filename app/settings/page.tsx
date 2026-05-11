@@ -1,192 +1,100 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import {
+  useEffect,
+  useState,
+} from "react"
+
 import { useRouter } from "next/navigation"
+
+import { FloatingNavbar } from "@/components/floating-navbar"
+
 import { useAuth } from "@/lib/auth-context"
 
 import {
-  Lock,
   User,
-  Bell,
   Shield,
-  Palette,
   ChevronRight,
-  Check,
-  LogOut,
   Trash2,
-  Globe2,
-  TrendingUp,
 } from "lucide-react"
-
-// ─────────────────────────────────────────────
-// TOGGLE
-// ─────────────────────────────────────────────
-
-function Toggle({
-  value,
-  onChange,
-}: {
-  value: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors duration-200 ${
-        value
-          ? "border-primary bg-primary"
-          : "border-[#334155] bg-[#1e293b]"
-      }`}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
-          value
-            ? "translate-x-6"
-            : "translate-x-1"
-        }`}
-      />
-    </button>
-  )
-}
-
-// ─────────────────────────────────────────────
-// SECTION
-// ─────────────────────────────────────────────
-
-function Section({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string
-  icon: any
-  children: React.ReactNode
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-[#334155]/40 bg-[#111827]/60">
-      <div className="flex items-center gap-2.5 border-b border-[#334155]/30 bg-[#1e293b]/30 px-5 py-4">
-        <Icon className="h-4 w-4 text-primary" />
-
-        <h2 className="text-sm font-bold uppercase tracking-widest text-foreground">
-          {title}
-        </h2>
-      </div>
-
-      <div className="divide-y divide-[#334155]/20">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function SettingRow({
-  label,
-  sub,
-  children,
-}: {
-  label: string
-  sub?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-center justify-between px-5 py-4">
-      <div>
-        <p className="text-sm font-medium text-foreground">
-          {label}
-        </p>
-
-        {sub && (
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {sub}
-          </p>
-        )}
-      </div>
-
-      <div className="ml-4 shrink-0">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// PAGE
-// ─────────────────────────────────────────────
 
 export default function SettingsPage() {
   const router = useRouter()
 
   const {
     user,
-    setUser,
+    loading,
     isAuthenticated,
     logout,
+    setUser,
   } = useAuth()
 
   // STATES
 
   const [name, setName] =
-    useState(user?.name ?? "")
-
-  const [email] =
-    useState(user?.email ?? "")
+    useState("")
 
   const [saved, setSaved] =
     useState(false)
 
-  const [notifSignals,
-    setNotifSignals] =
-    useState(true)
+  const [
+    currentPassword,
+    setCurrentPassword,
+  ] = useState("")
 
-  const [notifNews,
-    setNotifNews] =
-    useState(true)
+  const [
+    newPassword,
+    setNewPassword,
+  ] = useState("")
 
-  const [notifWeekly,
-    setNotifWeekly] =
-    useState(false)
+  const [
+    passwordLoading,
+    setPasswordLoading,
+  ] = useState(false)
 
-  const [notifEmail,
-    setNotifEmail] =
-    useState(true)
-
-  const [twoFA,
-    setTwoFA] =
-    useState(false)
-
-  const [showPasswordSection,
-    setShowPasswordSection] =
-    useState(false)
-
-  const [currentPassword,
-    setCurrentPassword] =
-    useState("")
-
-  const [newPassword,
-    setNewPassword] =
-    useState("")
-
-  const [passwordLoading,
-    setPasswordLoading] =
-    useState(false)
-
-  const [passwordSaved,
-    setPasswordSaved] =
-    useState(false)
+  const [
+    passwordSaved,
+    setPasswordSaved,
+  ] = useState(false)
 
   const [passwordError,
-    setPasswordError] =
+  setPasswordError] =
     useState("")
 
-  // AUTH
+  const [
+    showPasswordSection,
+    setShowPasswordSection,
+  ] = useState(false)
+
+  // REDIRECT
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (
+      !loading &&
+      !isAuthenticated
+    ) {
       router.push("/login")
     }
-  }, [isAuthenticated, router])
+  }, [
+    loading,
+    isAuthenticated,
+    router,
+  ])
 
-  // SAVE PROFILE
+  // LOAD USER
+
+  useEffect(() => {
+    if (user) {
+      setName(user.name || "")
+    }
+  }, [user])
+
+  if (loading) return null
+
+  if (!isAuthenticated || !user)
+    return null
+
+  // UPDATE PROFILE
 
   const handleSaveProfile =
     async () => {
@@ -204,7 +112,7 @@ export default function SettingsPage() {
 
               body: JSON.stringify({
                 name,
-                email: user?.email,
+                email: user.email,
               }),
             }
           )
@@ -235,7 +143,7 @@ export default function SettingsPage() {
       }
     }
 
-  // PASSWORD
+  // CHANGE PASSWORD
 
   const handlePasswordChange =
     async () => {
@@ -256,7 +164,7 @@ export default function SettingsPage() {
               },
 
               body: JSON.stringify({
-                email: user?.email,
+                email: user.email,
                 currentPassword,
                 newPassword,
               }),
@@ -282,7 +190,8 @@ export default function SettingsPage() {
         }, 2000)
       } catch (error: any) {
         setPasswordError(
-          error.message
+          error.message ||
+            "Failed to update password"
         )
       } finally {
         setPasswordLoading(false)
@@ -295,27 +204,34 @@ export default function SettingsPage() {
     async () => {
       const confirmDelete =
         confirm(
-          "Are you sure you want to delete your account permanently?"
+          "Are you sure you want to permanently delete your account?"
         )
 
       if (!confirmDelete) return
 
       try {
-        await fetch(
-          "/api/profile/update/delete",
-          {
-            method: "DELETE",
+        const response =
+          await fetch(
+            "/api/profile/delete",
+            {
+              method: "DELETE",
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
 
-            body: JSON.stringify({
-              email: user?.email,
-            }),
-          }
-        )
+              body: JSON.stringify({
+                email: user.email,
+              }),
+            }
+          )
+
+        if (!response.ok) {
+          throw new Error(
+            "Delete failed"
+          )
+        }
 
         localStorage.removeItem(
           "alphalab-user"
@@ -327,224 +243,251 @@ export default function SettingsPage() {
       }
     }
 
-  // LOGOUT
-
-  const handleLogout =
-    async () => {
-      await logout()
-      router.push("/")
-    }
-
-  if (!isAuthenticated || !user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Lock className="h-8 w-8 text-muted-foreground" />
-      </div>
-    )
-  }
-
   return (
-    <div className="relative min-h-screen bg-[#060d1a] pb-32 pt-24">
+    <div className="min-h-screen bg-[#020617] text-white">
+      <FloatingNavbar />
 
-      <div className="relative mx-auto max-w-2xl px-4">
+      <main className="mx-auto max-w-4xl px-6 py-24">
+        {/* HEADER */}
 
-        <div className="mb-8">
-
-          <h1 className="text-2xl font-black tracking-tight text-foreground">
+        <div className="mb-10">
+          <h1 className="text-5xl font-black tracking-tight text-white">
             Settings
           </h1>
 
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-2 text-lg text-yellow-400">
             Manage your account
+            settings
           </p>
         </div>
 
-        <div className="space-y-5">
+        {/* ACCOUNT */}
 
-          {/* ACCOUNT */}
+        <section className="overflow-hidden rounded-[32px] border border-white/10 bg-[#0B1120]/95 shadow-2xl">
+          {/* TITLE */}
 
-          <Section
-            title="Account"
-            icon={User}
-          >
+          <div className="border-b border-white/10 px-8 py-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-500/10 text-yellow-400">
+                <User size={28} />
+              </div>
 
-            <div className="space-y-4 px-5 py-5">
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Account
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-400">
+                  Update your account
+                  information
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* CONTENT */}
+
+          <div className="space-y-6 p-8">
+            {/* NAME */}
+
+            <div>
+              <label className="mb-3 block text-xs font-bold uppercase tracking-[0.2em] text-yellow-500">
+                Full Name
+              </label>
 
               <input
+                type="text"
                 value={name}
                 onChange={(e) =>
                   setName(
                     e.target.value
                   )
                 }
-                className="h-11 w-full rounded-xl border border-[#334155]/60 bg-[#0a0f1e]/60 px-4 text-sm text-white outline-none"
+                className="w-full rounded-2xl border border-white/10 bg-[#0A1020] px-5 py-4 text-white outline-none transition focus:border-yellow-500"
               />
+            </div>
+
+            {/* EMAIL */}
+
+            <div>
+              <label className="mb-3 block text-xs font-bold uppercase tracking-[0.2em] text-yellow-500">
+                Email
+              </label>
 
               <input
                 type="email"
-                value={email}
+                value={user.email}
                 disabled
                 className="w-full cursor-not-allowed rounded-2xl border border-white/10 bg-black/10 px-5 py-4 text-slate-400 outline-none"
               />
-
-              <button
-                onClick={
-                  handleSaveProfile
-                }
-                className="flex h-11 w-full items-center justify-center rounded-xl bg-primary font-semibold text-white"
-              >
-                {saved
-                  ? "Saved"
-                  : "Save Changes"}
-              </button>
             </div>
-          </Section>
 
-          {/* SECURITY */}
+            {/* ROLE */}
 
-          <Section
-            title="Security"
-            icon={Shield}
-          >
+            <div>
+              <label className="mb-3 block text-xs font-bold uppercase tracking-[0.2em] text-yellow-500">
+                Account Type
+              </label>
 
-            <SettingRow
-              label="Two-factor authentication"
-              sub="Coming soon"
+              <div className="rounded-2xl border border-white/10 bg-black/10 px-5 py-4 text-white">
+                {user.role}
+              </div>
+            </div>
+
+            {/* BUTTON */}
+
+            <button
+              onClick={
+                handleSaveProfile
+              }
+              className="w-full rounded-2xl bg-yellow-400 px-6 py-4 text-lg font-black text-black transition hover:bg-yellow-300"
             >
-              <Toggle
-                value={twoFA}
-                onChange={setTwoFA}
-              />
-            </SettingRow>
+              {saved
+                ? "Saved Successfully"
+                : "Save Changes"}
+            </button>
+          </div>
+        </section>
 
-            <div className="px-5 py-5">
+        {/* PASSWORD */}
+
+        <section className="mt-8 overflow-hidden rounded-[32px] border border-white/10 bg-[#0B1120]/95 shadow-2xl">
+          <button
+            type="button"
+            onClick={() =>
+              setShowPasswordSection(
+                !showPasswordSection
+              )
+            }
+            className="flex w-full items-center justify-between px-5 py-4 transition hover:bg-white/5"
+          >
+            <div className="text-left">
+              <p className="text-sm font-medium text-white">
+                Change password
+              </p>
+
+              <p className="mt-0.5 text-xs text-yellow-400">
+                Update your login
+                password
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1 text-xs font-semibold text-yellow-400 transition-colors hover:text-yellow-300">
+              Update
+
+              <ChevronRight className="h-3.5 w-3.5" />
+            </div>
+          </button>
+
+          {showPasswordSection && (
+            <div className="border-t border-white/10 p-8">
+              {/* CURRENT */}
+
+              <div>
+                <label className="mb-3 block text-xs font-bold uppercase tracking-[0.2em] text-yellow-500">
+                  Current Password
+                </label>
+
+                <input
+                  type="password"
+                  value={
+                    currentPassword
+                  }
+                  onChange={(e) =>
+                    setCurrentPassword(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded-2xl border border-white/10 bg-[#0A1020] px-5 py-4 text-white outline-none transition focus:border-yellow-500"
+                  placeholder="Enter current password"
+                />
+
+                {passwordError && (
+                  <p className="mt-2 text-sm font-medium text-red-500">
+                    {passwordError}
+                  </p>
+                )}
+              </div>
+
+              {/* NEW */}
+
+              <div className="mt-5">
+                <label className="mb-3 block text-xs font-bold uppercase tracking-[0.2em] text-yellow-500">
+                  New Password
+                </label>
+
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) =>
+                    setNewPassword(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded-2xl border border-white/10 bg-[#0A1020] px-5 py-4 text-white outline-none transition focus:border-yellow-500"
+                  placeholder="Enter new password"
+                />
+              </div>
+
+              {/* BUTTON */}
 
               <button
-                onClick={() =>
-                  setShowPasswordSection(
-                    !showPasswordSection
-                  )
+                type="button"
+                onClick={
+                  handlePasswordChange
                 }
-                className="flex items-center gap-2 text-sm font-semibold text-yellow-400"
+                disabled={
+                  passwordLoading
+                }
+                className="mt-6 w-full rounded-2xl bg-yellow-400 px-6 py-4 text-lg font-black text-black transition hover:bg-yellow-300 disabled:opacity-50"
               >
-                Change Password
-
-                <ChevronRight className="h-4 w-4" />
+                {passwordLoading
+                  ? "Updating..."
+                  : passwordSaved
+                  ? "Updated Successfully"
+                  : "Update Password"}
               </button>
-
-              {showPasswordSection && (
-                <div className="mt-5 space-y-4">
-
-                  <input
-                    type="password"
-                    value={
-                      currentPassword
-                    }
-                    onChange={(e) =>
-                      setCurrentPassword(
-                        e.target.value
-                      )
-                    }
-                    placeholder="Current password"
-                    className="w-full rounded-2xl border border-white/10 bg-[#0A1020] px-5 py-4 text-white outline-none"
-                  />
-
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) =>
-                      setNewPassword(
-                        e.target.value
-                      )
-                    }
-                    placeholder="New password"
-                    className="w-full rounded-2xl border border-white/10 bg-[#0A1020] px-5 py-4 text-white outline-none"
-                  />
-
-                  {passwordError && (
-                    <p className="text-sm text-red-500">
-                      {passwordError}
-                    </p>
-                  )}
-
-                  <button
-                    onClick={
-                      handlePasswordChange
-                    }
-                    disabled={
-                      passwordLoading
-                    }
-                    className="w-full rounded-2xl bg-yellow-400 px-6 py-4 font-black text-black"
-                  >
-                    {passwordLoading
-                      ? "Updating..."
-                      : passwordSaved
-                      ? "Updated"
-                      : "Update Password"}
-                  </button>
-                </div>
-              )}
             </div>
-          </Section>
+          )}
+        </section>
 
-          {/* DANGER */}
+        {/* DELETE */}
 
-          <div className="overflow-hidden rounded-2xl border border-red-500/20 bg-red-500/5">
+        <section className="mt-8 overflow-hidden rounded-[32px] border border-red-500/20 bg-red-500/5 shadow-2xl">
+          <div className="flex items-center justify-between px-5 py-4">
+            <div>
+              <p className="text-sm font-medium text-white">
+                Delete account
+              </p>
 
-            <div className="flex items-center gap-2.5 border-b border-red-500/20 px-5 py-4">
-
-              <Trash2 className="h-4 w-4 text-red-400" />
-
-              <h2 className="text-sm font-bold uppercase tracking-widest text-red-400">
-                Danger zone
-              </h2>
+              <p className="mt-0.5 text-xs text-red-300">
+                Permanently delete your
+                account and all data
+              </p>
             </div>
 
-            <div className="divide-y divide-red-500/10">
+            <button
+              onClick={
+                handleDeleteAccount
+              }
+              className="flex items-center gap-2 text-xs font-semibold text-red-400 transition hover:text-red-300"
+            >
+              Delete
 
-              <div className="flex items-center justify-between px-5 py-4">
-
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    Sign out
-                  </p>
-                </div>
-
-                <button
-                  onClick={
-                    handleLogout
-                  }
-                  className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-
-                  Sign out
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between px-5 py-4">
-
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    Delete account
-                  </p>
-                </div>
-
-                <button
-                  onClick={
-                    handleDeleteAccount
-                  }
-                  className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-
-                  Delete
-                </button>
-              </div>
-            </div>
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
-        </div>
-      </div>
+        </section>
+
+        {/* LOGOUT */}
+
+        <button
+          onClick={logout}
+          className="mt-8 w-full rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-lg font-black text-white transition hover:bg-white/10"
+        >
+          Logout
+        </button>
+      </main>
     </div>
   )
 }

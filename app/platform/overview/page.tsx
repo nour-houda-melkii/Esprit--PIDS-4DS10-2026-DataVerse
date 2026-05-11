@@ -266,9 +266,18 @@ export default function FeedPage() {
   const [activeCategory, setActiveCategory] = useState("All")
 
   // ── Auth guard ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!isAuthenticated) router.push("/login")
-  }, [isAuthenticated, router])
+ useEffect(() => {
+  if (
+    !loading &&
+    !isAuthenticated
+  ) {
+    router.push("/login")
+  }
+}, [
+  loading,
+  isAuthenticated,
+  router,
+])
 
   // ── Fetch news ────────────────────────────────────────────────────────────
   const fetchNews = useCallback(async (category = activeCategory) => {

@@ -23,18 +23,28 @@ export default function ProfilePage() {
   const router = useRouter()
 
   const {
-    user,
-    isAuthenticated,
-  } = useAuth()
+  user,
+  loading,
+  isAuthenticated,
+} = useAuth()
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.push("/login")
-    }
-  }, [isAuthenticated, router])
+ useEffect(() => {
+  if (
+    !loading &&
+    !isAuthenticated
+  ) {
+    router.push("/login")
+  }
+}, [
+  loading,
+  isAuthenticated,
+  router,
+])
 
-  if (!isAuthenticated || !user)
-    return null
+if (loading) return null
+
+if (!isAuthenticated || !user)
+  return null
 
   const portfolio =
     user.portfolios?.[0]
