@@ -15,8 +15,11 @@ import React, {
 export interface IPortfolio {
   name: string
   currencyPairs: string[]
+
   initialCapital: number
+
   currency: string
+
   riskLevel:
     | "low"
     | "medium"
@@ -33,9 +36,15 @@ export interface IPortfolio {
 
 export interface AuthUser {
   id: string
+
   name: string
+
   email: string
-  role: "investor" | "trader"
+
+  role:
+    | "investor"
+    | "trader"
+
   portfolios: IPortfolio[]
 }
 
