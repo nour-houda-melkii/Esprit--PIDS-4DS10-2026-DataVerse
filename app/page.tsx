@@ -591,17 +591,12 @@ function CurrencyTable() {
             Ready to Transform Your Trading?
           </h2>
           <p className="mb-10 text-lg text-muted-foreground">
-            Join the waitlist to be among the first to experience AI-powered
-            forex analysis when we launch.
+            Join us to be to experience AI-powered
+            forex analysis.
           </p>
 
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Button size="lg" asChild className="gap-2 px-8">
-              <Link href="/signup">
-                Get Early Access
-                <ArrowRight className="h-5 w-5" />
-              </Link>
-            </Button>
+           
             <Button size="lg" variant="outline" asChild className="px-8 bg-transparent">
               <Link href="/platform/overview">Explore Platform</Link>
             </Button>

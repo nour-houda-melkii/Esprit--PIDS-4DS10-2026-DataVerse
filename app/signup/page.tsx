@@ -13,7 +13,7 @@ import {
 
 const CURRENCY_PAIRS = [
   "EUR/USD","GBP/USD","USD/JPY","USD/CHF",
-  "EUR/GBP","EUR/JPY","GBP/JPY","EUR/CHF","GBP/CHF","CHF/JPY",
+  "EUR/JPY","GBP/JPY",
 ]
 
 const RISK_LEVELS    = ["low","medium","high"] as const

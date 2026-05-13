@@ -54,7 +54,7 @@ export function useLiveData(pairs: Pair[]) {
 
     try {
       const apiPair = PAIR_TO_API[pair];
-      const res = await fetch(`${REAL_API_BASE}/predict?pair=${apiPair}`, {
+      const res = await fetch(`${REAL_API_BASE}/predict?pair=${apiPair}&use_llm=true`, {
         signal: ctrl.signal,
         headers: { Accept: "application/json" },
       });
@@ -109,7 +109,7 @@ export function useLiveData(pairs: Pair[]) {
       setData((prev) => ({ ...prev, [p]: { ...prev[p], loading: true, error: null } }))
     );
     try {
-      const res = await fetch(`${REAL_API_BASE}/predict_all`);
+      const res = await fetch(`${REAL_API_BASE}/predict_all?use_llm=true`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: {
         success: boolean;

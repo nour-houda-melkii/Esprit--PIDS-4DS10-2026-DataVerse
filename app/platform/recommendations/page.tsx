@@ -3,7 +3,8 @@
 import { useState, useCallback, useEffect } from "react";
 import {
   Zap, RefreshCw, HelpCircle, AlertTriangle, ChevronLeft, ChevronRight,
-  LayoutDashboard, Activity, Brain, FlaskConical, Globe,
+  LayoutDashboard, Activity, Brain, FlaskConical, Globe, TrendingUp, BarChart3, LineChart,
+  MessageSquare, Network
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useLiveData } from "./hooks/useLiveData";
@@ -11,17 +12,23 @@ import { PortfolioCards } from "./components/ui/PortfolioCards";
 import { PairSelector } from "./components/ui/PairSelector";
 import { HelpPanel } from "./components/ui/HelpPanel";
 import { OverviewTab, TechnicalTab, ReasoningTab, ScenariosTab, MacroTab } from "./components/tabs";
+import { GeopoliticalTab } from "./components/tabs/GeopoliticalTab";
+import { CorrelationTab } from "./components/tabs/CorrelationTab";
+import { SentimentTab } from "./components/tabs/SentimentTab";
 import { PAIRS, GROWTH_STATIC, SIGNAL_STATIC, PRICE, CHANGE, TIMEFRAME, CONVICTION_STATIC, FLAGS, PAIR_TO_API } from "./lib/constants";
 import { Pair } from "./lib/types";
 import { sc, fmt } from "./lib/utils";
 import { SignalPill } from "./components/ui/SignalPill";
 
 const TABS = [
-  { id: "overview",  label: "Overview",  icon: LayoutDashboard },
-  { id: "technical", label: "Technical", icon: Activity        },
-  { id: "reasoning", label: "Reasoning", icon: Brain           },
-  { id: "scenarios", label: "Scenarios", icon: FlaskConical    },
-  { id: "macro",     label: "Macro",     icon: Globe           },
+  { id: "overview",       label: "Overview",      icon: LayoutDashboard },
+  { id: "technical",      label: "Technical",     icon: Activity        },
+  { id: "reasoning",      label: "Reasoning",     icon: Brain           },
+  { id: "scenarios",      label: "Scenarios",     icon: FlaskConical    },
+  { id: "macro",          label: "Macro",         icon: Globe           },
+  { id: "geopolitical",   label: "Geopolitical",  icon: AlertTriangle   },
+  { id: "correlation",    label: "Correlation",   icon: Network         },
+  { id: "sentiment",      label: "Sentiment",     icon: MessageSquare   },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -39,6 +46,184 @@ const DEMO_PORTFOLIOS: IPortfolio[] = [
   { name: "EUR Focus",         currencyPairs: ["EUR/USD", "EUR/JPY", "USD/CHF"],       initialCapital: 15000, currency: "USD", riskLevel: "low",    tradingStyle: "long-term"   },
   { name: "High Beta — Carry", currencyPairs: ["GBP/JPY", "USD/JPY", "GBP/USD"],      initialCapital: 10000, currency: "USD", riskLevel: "high",   tradingStyle: "day-trading" },
 ];
+
+const LOADING_FACTS = [
+  "The FX market trades $7.5 trillion daily — largest financial market globally",
+  "Currency pairs move in pips — smallest price increments tracked by traders",
+  "Major pairs include the USD — 88% of all FX transactions involve dollars",
+  "London, New York, and Tokyo drive 70% of global FX trading volume",
+  "Central bank decisions can shift currency values by hundreds of pips instantly",
+  "Carry trades exploit interest rate differentials between currency pairs",
+  "EUR/USD is the most liquid pair — accounting for 24% of daily FX volume",
+  "Forex markets operate 24/5 — opening Sunday evening, closing Friday night",
+  "Technical analysis patterns often repeat across different currency pairs",
+  "Macroeconomic data releases create high-volatility trading windows",
+];
+
+
+function FXLoader() {
+  const [factIndex, setFactIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [bars, setBars] = useState<number[]>([]); // ✅ moved here
+
+  useEffect(() => {
+    const generated = Array.from({ length: 40 }).map((_, i) => {
+      return 30 + Math.sin(i * 0.5) * 20 + Math.cos(i * 0.3) * 15;
+    });
+    setBars(generated);
+  }, []);
+
+  useEffect(() => {
+    const factTimer = setInterval(() => {
+      setFactIndex(prev => (prev + 1) % LOADING_FACTS.length);
+    }, 3000);
+
+    const progressTimer = setInterval(() => {
+      setProgress(prev => Math.min(prev + Math.random() * 8, 95));
+    }, 150);
+
+    return () => {
+      clearInterval(factTimer);
+      clearInterval(progressTimer);
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-[#040c18] z-50 flex items-center justify-center">
+      {/* Animated background gradients */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "4s" }} />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "5s", animationDelay: "1s" }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-500/5 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "6s", animationDelay: "2s" }} />
+      </div>
+
+      <div className="relative z-10 max-w-2xl w-full px-6">
+        {/* Main loader card */}
+        <div className="rounded-3xl border border-white/[0.08] bg-[#060e1d]/80 backdrop-blur-xl overflow-hidden">
+          {/* Top accent bar */}
+          <div className="h-1 bg-gradient-to-r from-blue-500 via-emerald-500 to-purple-500 animate-gradient" 
+               style={{ backgroundSize: "200% 100%", animation: "gradient 3s ease infinite" }} />
+          
+          <div className="px-8 py-10">
+            {/* Header */}
+            <div className="flex items-center justify-center gap-3 mb-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/20 border border-blue-500/30">
+                <Zap className="h-6 w-6 text-blue-400 animate-pulse" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-white tracking-tight">Portfolio Intelligence</h1>
+                <p className="text-xs text-slate-500">Initializing market analysis...</p>
+              </div>
+            </div>
+
+            {/* Currency symbols floating */}
+            <div className="flex items-center justify-center gap-6 mb-8">
+              {["$", "€", "¥", "£", "₣"].map((symbol, i) => (
+                <div
+                  key={symbol}
+                  className="text-4xl font-bold text-white/20 animate-bounce"
+                  style={{ 
+                    animationDelay: `${i * 0.2}s`,
+                    animationDuration: "2s"
+                  }}
+                >
+                  {symbol}
+                </div>
+              ))}
+            </div>
+
+            {/* Animated chart lines */}
+            <div className="relative h-24 mb-8 rounded-xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
+              <div className="absolute inset-0 flex items-center justify-center gap-1 px-4">
+               {bars.map((h, i) => (
+  <div
+    key={i}
+    style={{
+      height: `${h}%`,
+      animationDelay: `${i * 0.05}s`,
+      animationDuration: `${1.5}s`, // NO random here
+    }}
+  />
+))}
+              </div>
+            </div>
+
+            {/* Loading stats */}
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              {[
+                { icon: TrendingUp, label: "Analyzing", value: "6 pairs", color: "text-blue-400" },
+                { icon: BarChart3, label: "Processing", value: "Market data", color: "text-emerald-400" },
+                { icon: LineChart, label: "Computing", value: "Signals", color: "text-purple-400" },
+              ].map(stat => (
+                <div key={stat.label} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center">
+                  <stat.icon className={`h-5 w-5 mx-auto mb-2 ${stat.color} animate-pulse`} />
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">{stat.label}</p>
+                  <p className={`text-xs font-bold ${stat.color}`}>{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Progress bar */}
+            <div className="mb-6">
+              <div className="h-2 rounded-full bg-white/[0.05] overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 via-emerald-500 to-purple-500 transition-all duration-300 ease-out"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-600">Fetching live market data</span>
+                <span className="text-xs font-mono font-bold text-slate-400">{Math.round(progress)}%</span>
+              </div>
+            </div>
+
+            {/* Rotating facts */}
+            <div className="rounded-xl border border-white/[0.06] bg-gradient-to-br from-blue-500/[0.03] to-purple-500/[0.03] px-5 py-4 min-h-[80px] flex items-center">
+              <div key={factIndex} className="animate-fadeIn">
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  <span className="font-bold text-blue-400">Market insight:</span> {LOADING_FACTS[factIndex]}
+                </p>
+              </div>
+            </div>
+
+            {/* Loading dots */}
+            <div className="flex items-center justify-center gap-2 mt-6">
+              {[0, 1, 2].map(i => (
+                <div
+                  key={i}
+                  className="h-2 w-2 rounded-full bg-blue-400 animate-pulse"
+                  style={{ animationDelay: `${i * 0.2}s` }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Subtext */}
+        <p className="text-center text-xs text-slate-600 mt-6">
+          Connecting to Azure OpenAI · Real-time FX analysis · Central Brain v7
+        </p>
+      </div>
+
+      <style jsx>{`
+        @keyframes gradient {
+          0%, 100% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.5s ease-out;
+        }
+        .animate-gradient {
+          animation: gradient 3s ease infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
 
 export default function RecommendationsPage() {
   const { user } = useAuth();
@@ -67,6 +252,9 @@ export default function RecommendationsPage() {
   const currentSig = liveData[pair]?.signal ?? SIGNAL_STATIC[pair];
   const c          = sc(currentSig);
   const anyLoading = portfolioPairs.some(p => liveData[p]?.loading);
+  const allLoading = portfolioPairs.length > 0 && portfolioPairs.every(p => liveData[p]?.loading);
+  const [showLoader, setShowLoader] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
   useEffect(() => {
     if (!portfolioPairs.includes(pair) && portfolioPairs.length > 0) {
@@ -74,6 +262,17 @@ export default function RecommendationsPage() {
       setTab("overview");
     }
   }, [portfolioIdx, portfolioPairs, pair]);
+
+  useEffect(() => {
+    // Hide loader when data starts coming in (only on initial load)
+    if (!initialLoadComplete && !allLoading && portfolioPairs.some(p => !liveData[p]?.loading)) {
+      const timer = setTimeout(() => {
+        setShowLoader(false);
+        setInitialLoadComplete(true);
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [allLoading, portfolioPairs, liveData, initialLoadComplete]);
 
   const handlePortfolioSelect = useCallback((i: number) => {
     setPortfolioIdx(i);
@@ -84,6 +283,11 @@ export default function RecommendationsPage() {
   const handlePairChange = useCallback((p: Pair) => {
     setPair(p); setTab("overview");
   }, []);
+
+  // Show loader on initial mount
+  if (showLoader) {
+    return <FXLoader />;
+  }
 
   return (
     <div className="min-h-screen bg-[#040c18]" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
@@ -273,31 +477,36 @@ export default function RecommendationsPage() {
                 </div>
               </div>
 
-              {/* Tabs */}
-              <div className="border-t border-white/[0.06] flex overflow-x-auto scrollbar-none">
-                {TABS.map(t => {
-                  const active = t.id === tab;
-                  return (
-                    <button key={t.id} onClick={() => setTab(t.id)}
-                      className={`flex items-center gap-1.5 shrink-0 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
-                        active ? "border-blue-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      <t.icon className={`h-3 w-3 ${active ? "text-blue-400" : ""}`} />
-                      {t.label}
-                    </button>
-                  );
-                })}
+              {/* Tabs - Multi-row grid for all 8 tabs visible */}
+              <div className="border-t border-white/[0.06] bg-black/20">
+                <div className="grid grid-cols-4 gap-0">
+                  {TABS.map(t => {
+                    const active = t.id === tab;
+                    return (
+                      <button key={t.id} onClick={() => setTab(t.id)}
+                        className={`flex flex-col items-center gap-1 px-3 py-3 text-[10px] font-black uppercase tracking-wider border-b-2 transition-all ${
+                          active ? "border-blue-500 text-white bg-blue-500/5" : "border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <t.icon className={`h-4 w-4 ${active ? "text-blue-400" : ""}`} />
+                        <span className="text-center leading-tight">{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            {/* Tab content */}
+            {/* Tab content - Updated with new agent tabs */}
             <div key={`${pair}-${tab}`}>
-              {tab === "overview"  && <OverviewTab  pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} onRefetch={refetch} />}
-              {tab === "technical" && <TechnicalTab pair={pair} liveData={liveData} />}
-              {tab === "reasoning" && <ReasoningTab pair={pair} liveData={liveData} />}
-              {tab === "scenarios" && <ScenariosTab pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} />}
-              {tab === "macro"     && <MacroTab     pair={pair} liveData={liveData} />}
+              {tab === "overview"       && <OverviewTab  pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} onRefetch={refetch} />}
+              {tab === "technical"      && <TechnicalTab pair={pair} liveData={liveData} />}
+              {tab === "reasoning"      && <ReasoningTab pair={pair} liveData={liveData} />}
+              {tab === "scenarios"      && <ScenariosTab pair={pair} capital={perPair} portfolioPairs={portfolioPairs} liveData={liveData} />}
+              {tab === "macro"          && <MacroTab     pair={pair} liveData={liveData} />}
+              {tab === "geopolitical"   && <GeopoliticalTab pair={pair} liveData={liveData} />}
+              {tab === "correlation"    && <CorrelationTab pair={pair} liveData={liveData} />}
+              {tab === "sentiment"      && <SentimentTab pair={pair} liveData={liveData} />}
             </div>
           </div>
         </div>
